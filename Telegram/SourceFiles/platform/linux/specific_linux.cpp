@@ -365,7 +365,7 @@ bool GenerateDesktopFile(
 		QFile::remove(u"%1appimagekit_%2-%3.desktop"_q.arg(
 			targetPath,
 			md5Hash,
-			AppName.utf16().replace(' ', '_')));
+			u"Telegram_Desktop"_q));
 
 		const auto d = QFile::encodeName(QDir(cWorkingDir()).absolutePath());
 		hashMd5Hex(d.constData(), d.size(), md5Hash);
