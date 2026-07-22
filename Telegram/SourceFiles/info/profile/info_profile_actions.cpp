@@ -1849,6 +1849,19 @@ Section DetailsFiller::makeInfo() {
 			SetupAboutPeerIdDrag(about.text, _peer);
 		}
 	}
+	{
+		const auto peerId = _peer->id;
+		const auto bareId = peerId.value & PeerId::kChatTypeMask;
+		const auto idText = peerIsChannel(peerId)
+			? (u"-100"_q + QString::number(bareId))
+			: peerIsChat(peerId)
+			? (u"-"_q + QString::number(bareId))
+			: QString::number(bareId);
+		addInfoOneLine(
+			rpl::single(u"ID"_q),
+			rpl::single(TextWithEntities{ idText }),
+			QString());
+	}
 	raw->toggleOn(tracker.atLeastOneShownValue());
 	raw->finishAnimating();
 
