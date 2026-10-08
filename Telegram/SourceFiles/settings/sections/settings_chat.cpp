@@ -1816,6 +1816,32 @@ void SetupMessages(
 		Core::App().saveSettingsDelayed();
 	}, inner->lifetime());
 
+	const auto showSeconds = inner->add(
+		object_ptr<Ui::Checkbox>(
+			inner,
+			tr::lng_settings_chat_show_seconds(tr::now),
+			Core::App().settings().showSeconds(),
+			st::settingsCheckbox),
+		st::settingsCheckboxPadding);
+	showSeconds->checkedChanges(
+	) | rpl::on_next([=](bool checked) {
+		Core::App().settings().setShowSeconds(checked);
+		Core::App().saveSettingsDelayed();
+	}, inner->lifetime());
+
+	const auto hideStories = inner->add(
+		object_ptr<Ui::Checkbox>(
+			inner,
+			tr::lng_settings_chat_hide_stories(tr::now),
+			Core::App().settings().hideStories(),
+			st::settingsCheckbox),
+		st::settingsCheckboxPadding);
+	hideStories->checkedChanges(
+	) | rpl::on_next([=](bool checked) {
+		Core::App().settings().setHideStories(checked);
+		Core::App().saveSettingsDelayed();
+	}, inner->lifetime());
+
 	Ui::AddSkip(inner);
 }
 

@@ -722,6 +722,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_settings_chat_corner_reply" = "Reply button on messages";
 "lng_settings_chat_corner_reaction" = "Reaction button on messages";
 "lng_settings_pull_to_next_channel" = "Swipe to the next unread channel";
+"lng_settings_chat_show_seconds" = "Show seconds in timestamps";
+"lng_settings_chat_hide_stories" = "Hide stories bar";
 
 "lng_settings_shortcuts" = "Keyboard shortcuts";
 

@@ -40,6 +40,9 @@ namespace Core {
 inline constexpr auto kScreenReaderModeDisabledKey
 	= "screen-reader-mode-disabled"_cs;
 
+inline constexpr auto kShowSecondsKey = "show-seconds"_cs;
+inline constexpr auto kHideStoriesKey = "hide-stories"_cs;
+
 struct WindowPosition {
 	int32 moncrc = 0;
 	int maximized = 0;
@@ -520,6 +523,20 @@ public:
 	}
 	[[nodiscard]] rpl::producer<bool> cornerReplyValue() const {
 		return _cornerReply.value();
+	}
+	void setShowSeconds(bool value) {
+		writePref<bool>(kShowSecondsKey, value);
+		_saveDelayed.fire({});
+	}
+	[[nodiscard]] bool showSeconds() const {
+		return readPref<bool>(kShowSecondsKey, false);
+	}
+	void setHideStories(bool value) {
+		writePref<bool>(kHideStoriesKey, value);
+		_saveDelayed.fire({});
+	}
+	[[nodiscard]] bool hideStories() const {
+		return readPref<bool>(kHideStoriesKey, false);
 	}
 	void setPullToNextChannel(bool value) {
 		_pullToNextChannel = value;
