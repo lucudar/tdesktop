@@ -49,6 +49,13 @@ struct ReactionFlyCenter {
 	bool forceFirstFrame = false;
 };
 
+// The arc every fly takes, its apex `top` above the higher end.
+struct FlyParabola {
+	float64 a = 0.;
+	float64 b = 0.;
+};
+[[nodiscard]] FlyParabola ComputeFlyParabola(int from, int to, int top);
+
 class ReactionFlyAnimation final {
 public:
 	ReactionFlyAnimation(
@@ -71,6 +78,7 @@ public:
 	[[nodiscard]] bool flying() const;
 	[[nodiscard]] float64 flyingProgress() const;
 	[[nodiscard]] bool finished() const;
+	[[nodiscard]] bool centerInDefaultState();
 
 	[[nodiscard]] ReactionFlyCenter takeCenter();
 

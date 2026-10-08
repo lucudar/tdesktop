@@ -73,7 +73,7 @@ Members::Members(
 int Members::desiredHeight() const {
 	auto desired = _header ? _header->height() : 0;
 	desired += _list->fullRowsCount() * st::infoMembersList.item.height;
-	return qMax(height(), desired);
+	return std::max(height(), desired);
 }
 
 rpl::producer<int> Members::onlineCountValue() const {
@@ -103,6 +103,10 @@ rpl::producer<bool> Members::groupByRoleValue() const {
 
 rpl::producer<bool> Members::groupByRoleAvailableValue() const {
 	return _listController->groupByRoleAvailableValue();
+}
+
+rpl::producer<bool> Members::rowsVisibleValue() const {
+	return _rowsVisible.value();
 }
 
 std::unique_ptr<MembersState> Members::saveState() {
@@ -445,6 +449,9 @@ void Members::visibleTopBottomUpdated(
 		int visibleTop,
 		int visibleBottom) {
 	setChildVisibleTopBottom(_list, visibleTop, visibleBottom);
+	const auto top = _list->y();
+	_rowsVisible = (visibleBottom > top)
+		&& (visibleTop < top + _list->height());
 }
 
 void Members::peerListSetTitle(rpl::producer<QString> title) {

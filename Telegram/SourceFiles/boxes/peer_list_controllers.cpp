@@ -52,10 +52,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_session_controller.h" // showAddContact()
 #include "base/unixtime.h"
 #include "styles/style_boxes.h"
-#include "styles/style_profile.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_chat_helpers.h"
 #include "styles/style_menu_icons.h"
+#include "styles/style_premium.h"
 
 namespace {
 
@@ -274,7 +274,7 @@ void PeerListGlobalSearchController::searchDone(
 		mtpRequestId requestId) {
 	Expects(result.type() == mtpc_contacts_found);
 
-	auto &contacts = result.c_contacts_found();
+	const auto &contacts = result.c_contacts_found();
 	auto query = _query;
 	if (requestId) {
 		_session->data().processUsers(contacts.vusers());
@@ -1056,6 +1056,12 @@ auto ChooseRecipientBoxController::createRow(
 	auto result = std::make_unique<Row>(
 		history,
 		_moneyRestrictionError ? &computeListSt().item : nullptr);
+	if (const auto info = JoinedCommunityChats(peer)) {
+		result->setCustomStatus(tr::lng_community_chats(
+			tr::now,
+			lt_count,
+			int(info->histories().size())));
+	}
 	return result;
 }
 
@@ -1614,7 +1620,6 @@ void PaintRestrictionBadge(
 				st::premiumButtonFg->c,
 				&check);
 		} else {
-			auto hq = PainterHighQualityEnabler(p);
 			const auto &icon = st::stickersPremiumLock;
 			const auto width = icon.width();
 			const auto height = icon.height();
@@ -1630,6 +1635,7 @@ void PaintRestrictionBadge(
 			cache.badge.fill(Qt::transparent);
 			const auto inner = QRect(add, add, rect.width(), rect.height());
 			auto q = QPainter(&cache.badge);
+			auto hq = PainterHighQualityEnabler(q);
 			auto pen = check.border->p;
 			pen.setWidthF(check.width);
 			q.setPen(pen);
