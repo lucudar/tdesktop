@@ -43,7 +43,18 @@
       - **AppUserModelId → `Telewhite.Desktop`** (был `Telegram.TelegramDesktop`), чтобы тосты
         не путались с официальным Telegram в центре уведомлений Windows;
       - **лимит аккаунтов 3 → 10** (`Main::Domain::kMaxAccounts` и `kPremiumMaxAccounts`).
-- [ ] Батч 3 фич: скрытие сторис, время с секундами в сообщениях.
+- [x] Батч 3 фич (локально, ждёт сборки — запущен 08.10.2026 после батча 2):
+      - **«Секунды в таймстампах»** — новый хелпер `Ui::FormatTimeOfDay` в
+        `ui/text/format_values.cpp`, использует `QLocale::LongFormat` когда включено;
+        подключён в `FormatDialogsDate` (список чатов) и в `history_view_bottom_info.cpp`
+        (время пузыря + «edited»). Чекбокс в Настройки → Чат.
+      - **«Скрыть панель сторис»** — ранний выход в `Widget::updateStoriesVisibility`
+        (`dialogs/dialogs_widget.cpp`). Чекбокс в Настройки → Чат.
+      - Обе настройки через `writePref/readPref<bool>` (KV-карта `_prefs`), поэтому
+        QDataStream-порядок не сдвигается и старые tdata читаются как раньше.
+      - Известные ограничения: кэш даты в списке чатов (`dialogs_entry.cpp`) не
+        инвалидируется при переключении — нужен рестарт чата; уведомления-скринридер
+        и «скопировать текст» пока показывают время без секунд (сознательно отложено).
 - [ ] Кастомная тема/дизайн (цвета, акценты, фон, шрифты) — задача пользователя, обсуждается.
 - [ ] Перевести сборку в Release (сейчас Debug: ~124 МБ и тормоза — для повседневного
       использования не годится). Debug собирается быстрее, Release тяжелее по времени,
@@ -72,6 +83,12 @@ git merge upstream/dev
 - Лицензия GPLv3: исходники форка открыты; нельзя использовать имя «Telegram» и оригинальную иконку как есть.
 - Для правок интерфейса смотреть `.style`-файлы и `Telegram/Resources/`;
   идеи фич можно подсматривать в форках 64Gram, Kotatogram, AyuGram, Forkgram.
+- Пути в этом репозитории отличаются от апстрима: `.style`-файлы лежат в
+  `Telegram/SourceFiles/<area>/*.style` (не в `Telegram/Resources/style/`),
+  палитра — `Telegram/lib_ui/ui/colors.palette`, настройки чата —
+  `Telegram/SourceFiles/settings/sections/settings_chat.cpp`.
+  `Telegram/Resources/langs/lang.strings` — CRLF, без BOM, вставлять байтово.
+- Перед правками `git submodule update --init --depth=1` (иначе нет `.style` и палитры).
 - Стиль кода: табы, без комментариев-комментариев очевидного, `auto` для типов,
   строки через `u"..."_q`, новые настройки — через `writePref/readPref` (не QDataStream!).
 - Требования к коммитам и стилю — в `AGENTS.md` и `REVIEW.md` в корне репозитория.

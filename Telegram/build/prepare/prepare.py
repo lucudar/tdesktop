@@ -279,7 +279,14 @@ stages = []
 
 def removeDir(folder):
     if win:
-        return 'if exist ' + folder + ' rmdir /Q /S ' + folder + '\nif exist ' + folder + ' exit /b 1'
+        # rmdir fails when something (e.g. a stale shell) still holds the folder
+        # as its cwd, and `exit /b 1` would abort the whole prepare run over it.
+        # Tolerate that: if the folder survives, an empty one still accepts a
+        # fresh `git clone`.
+        return ('if exist ' + folder + ' rmdir /Q /S ' + folder + '\n'
+                'if exist ' + folder + ' (\n'
+                '  echo WARNING: could not remove ' + folder + ', continuing\n'
+                ')')
     return 'rm -rf ' + folder
 
 def setVar(key, multilineValue):
@@ -565,7 +572,7 @@ win:
 
 stage('jom', """
 win:
-    powershell -Command "iwr -OutFile ./jom.zip https://master.qt.io/official_releases/jom/jom_1_1_3.zip"
+    powershell -Command "iwr -OutFile ./jom.zip https://ftp.funet.fi/pub/mirrors/download.qt-project.org/official_releases/jom/jom_1_1_3.zip"
     powershell -Command "Expand-Archive ./jom.zip"
     del jom.zip
 """, 'ThirdParty')
@@ -986,8 +993,11 @@ stage('libwebp', """
     git clone -b v1.6.0 https://github.com/webmproject/libwebp.git
     cd libwebp
 win:
-    nmake /f Makefile.vc CFG=debug-static OBJDIR=out RTLIBCFG=static all
-    nmake /f Makefile.vc CFG=release-static OBJDIR=out RTLIBCFG=static all
+    rem PATH is prefixed with System32 so Makefile.vc's architecture probe uses
+    rem Windows find.exe instead of Git Bash's POSIX find.exe, which breaks it.
+    set "PATH=%SYSTEMROOT%\\System32;%PATH%"
+    nmake /f Makefile.vc CFG=debug-static OBJDIR=out RTLIBCFG=static ARCH=$X8664 all
+    nmake /f Makefile.vc CFG=release-static OBJDIR=out RTLIBCFG=static ARCH=$X8664 all
     copy out\\release-static\\$X8664\\lib\\libwebp.lib out\\release-static\\$X8664\\lib\\webp.lib
     copy out\\release-static\\$X8664\\lib\\libwebpdemux.lib out\\release-static\\$X8664\\lib\\webpdemux.lib
     copy out\\release-static\\$X8664\\lib\\libwebpmux.lib out\\release-static\\$X8664\\lib\\webpmux.lib
@@ -1084,7 +1094,10 @@ winarm:
     SET "TOOLCHAIN=arm64-win64-vs17-v145"
 win:
 depends:patches/build_libvpx_win.sh
-    bash --login ../patches/build_libvpx_win.sh
+    rem No --login: it resets PATH, hiding nasm (which prepare.py put on PATH
+    rem via PATH_PREFIX) and breaking configure with
+    rem "Neither yasm nor nasm have been found".
+    bash ../patches/build_libvpx_win.sh
 mac:
     find ../patches/libvpx -type f -print0 | sort -z | xargs -0 git apply
 
@@ -1185,7 +1198,10 @@ winarm:
     SET "ARCH_PARAM=--arch=aarch64"
 win:
 depends:patches/build_ffmpeg_win.sh
-    bash --login ../patches/build_ffmpeg_win.sh
+    rem No --login: same reason as libvpx (it would hide nasm).
+    rem ../patches/build_ffmpeg_win.sh is patched in place (absolute
+    rem PKG_CONFIG_PATH); re-cloning the patches stage would undo that.
+    bash ../patches/build_ffmpeg_win.sh
 mac:
     export PKG_CONFIG_PATH=$USED_PREFIX/lib/pkgconfig
 
