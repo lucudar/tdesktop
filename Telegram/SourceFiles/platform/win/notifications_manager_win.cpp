@@ -413,7 +413,7 @@ bool Enforced() {
 }
 
 bool ByDefault() {
-	return false;
+	return true;
 }
 
 bool VolumeSupported() {
@@ -706,9 +706,15 @@ bool Manager::Private::showNotification(
 
 std::wstring Manager::Private::ensureSendButtonIcon() {
 	if (_sendButtonIconPath.empty()) {
-		const auto path = cWorkingDir() + u"tdata/temp/fast_reply.png"_q;
-		st::historySendIcon.instance(Qt::white, 300).save(path, "PNG");
-		_sendButtonIconPath = path.toStdWString();
+		auto dir = QDir(cWorkingDir() + u"tdata/temp"_q);
+		if (!dir.exists()) {
+			dir.mkpath(u"."_q);
+		}
+		const auto path = dir.absoluteFilePath(u"fast_reply.png"_q);
+		if (!st::historySendIcon.instance(Qt::white, 300).save(path, "PNG")) {
+			return std::wstring();
+		}
+		_sendButtonIconPath = QDir::toNativeSeparators(path).toStdWString();
 	}
 	return _sendButtonIconPath;
 }
@@ -760,7 +766,10 @@ bool Manager::Private::showNotificationInTryCatch(
 	const auto userpicPathWide = QDir::toNativeSeparators(
 		userpicPath).toStdWString();
 	if (modern && !info.options.hideReplyButton) {
-		SetReplyIconSrc(toastXml, ensureSendButtonIcon());
+		const auto replyIcon = ensureSendButtonIcon();
+		if (!replyIcon.empty()) {
+			SetReplyIconSrc(toastXml, replyIcon);
+		}
 		SetReplyPlaceholder(
 			toastXml,
 			tr::lng_message_ph(tr::now).toStdWString());
