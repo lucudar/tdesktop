@@ -900,7 +900,7 @@ bool TrimTimeline::eventHook(QEvent *e) {
 		const auto gesture = static_cast<QNativeGestureEvent*>(e);
 		const auto type = gesture->gestureType();
 		if (type == Qt::ZoomNativeGesture) {
-			const auto global = gesture->globalPosition().toPoint();
+			const auto global = gesture->globalPos();
 			zoomBy(1. + gesture->value(), mapFromGlobal(global).x());
 			return true;
 		} else if (type == Qt::SmartZoomNativeGesture) {
