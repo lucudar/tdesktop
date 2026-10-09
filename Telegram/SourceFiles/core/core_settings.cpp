@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "spellcheck/spellcheck_types.h"
 #include "storage/serialize_common.h"
 #include "ui/gl/gl_detection.h"
+#include "ui/text/format_values.h"
 #include "ui/widgets/fields/input_field.h"
 #include "webrtc/webrtc_create_adm.h"
 #include "webrtc/webrtc_device_common.h"
@@ -529,6 +530,12 @@ QByteArray Settings::serialize() const {
 
 	Ensures(result.size() == size);
 	return result;
+}
+
+void Settings::setShowSeconds(bool value) {
+	writePref<bool>(kShowSecondsKey, value);
+	Ui::SetShowSecondsInTime(value);
+	_saveDelayed.fire({});
 }
 
 void Settings::addFromSerialized(const QByteArray &serialized) {
@@ -1047,6 +1054,7 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 		}
 		if (stream.status() == QDataStream::Ok) {
 			_prefs = std::move(prefs);
+			Ui::SetShowSecondsInTime(showSeconds());
 		}
 	}
 	if (!stream.atEnd()) {

@@ -524,10 +524,7 @@ public:
 	[[nodiscard]] rpl::producer<bool> cornerReplyValue() const {
 		return _cornerReply.value();
 	}
-	void setShowSeconds(bool value) {
-		writePref<bool>(kShowSecondsKey, value);
-		_saveDelayed.fire({});
-	}
+	void setShowSeconds(bool value);
 	[[nodiscard]] bool showSeconds() const {
 		return readPref<bool>(kShowSecondsKey, false);
 	}

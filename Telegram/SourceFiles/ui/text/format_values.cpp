@@ -10,7 +10,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/unixtime.h"
 #include "lang/lang_keys.h"
 #include "countries/countries_instance.h"
-#include "core/application.h"
 
 #include <QtCore/QLocale>
 #include <locale>
@@ -725,10 +724,25 @@ QString FormatDialogsDate(const QDateTime &lastTime) {
 	}
 }
 
+namespace {
+
+bool ShowSecondsInTime = false;
+
+} // namespace
+
+void SetShowSecondsInTime(bool show) {
+	ShowSecondsInTime = show;
+}
+
 QString FormatTimeOfDay(const QTime &time) {
-	return Core::App().settings().showSeconds()
-		? QLocale().toString(time, QLocale::LongFormat)
-		: QLocale().toString(time, QLocale::ShortFormat);
+	if (!ShowSecondsInTime) {
+		return QLocale().toString(time, QLocale::ShortFormat);
+	}
+	auto format = QLocale().timeFormat(QLocale::ShortFormat);
+	if (!format.contains(u's')) {
+		format.replace(u"mm"_q, u"mm:ss"_q);
+	}
+	return QLocale().toString(time, format);
 }
 
 } // namespace Ui
