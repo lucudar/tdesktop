@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "window/main_window.h"
 
+#include "telewhite/telewhite_snowfall.h"
 #include "api/api_updates.h"
 #include "storage/localstorage.h"
 #include "platform/platform_specific.h"
@@ -576,6 +577,8 @@ void MainWindow::init() {
 
 	updateTitle();
 	updateWindowIcon();
+
+	Telewhite::SetupSnowfall(bodyWidget());
 }
 
 void MainWindow::handleStateChanged(Qt::WindowState state) {

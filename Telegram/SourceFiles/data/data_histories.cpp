@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_histories.h"
 
+#include "telewhite/telewhite_mods.h"
 #include "api/api_text_entities.h"
 #include "data/business/data_shortcut_messages.h"
 #include "data/components/ephemeral_messages.h"
@@ -656,6 +657,9 @@ void Histories::sendPendingReadInbox(not_null<History*> history) {
 }
 
 void Histories::reportDelivery(not_null<HistoryItem*> item) {
+	if (Telewhite::Enabled(Telewhite::Mod::GhostRead)) {
+		return;
+	}
 	auto &set = _pendingDeliveryReport[item->history()->peer];
 	if (!set.emplace(item->id).second) {
 		return;
@@ -740,6 +744,12 @@ void Histories::sendReadRequest(not_null<History*> history, State &state) {
 	const auto tillId = state.sentReadTill = base::take(state.willReadTill);
 	state.willReadWhen = 0;
 	state.sentReadDone = false;
+	if (Telewhite::Enabled(Telewhite::Mod::GhostRead)) {
+		state.sentReadTill = 0;
+		state.sentReadDone = true;
+		history->validateMonoAndForumUnread(tillId);
+		return;
+	}
 	DEBUG_LOG(("Reading: sending request now with till %1."
 		).arg(tillId.bare));
 	sendRequest(history, RequestType::ReadInbox, [=](Fn<void()> finish) {

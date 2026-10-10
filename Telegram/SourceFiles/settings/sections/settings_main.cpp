@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "settings/sections/settings_main.h"
 
+#include "telewhite/telewhite_mods_box.h"
 #include "settings/settings_common_session.h"
 
 #include "api/api_cloud_password.h"
@@ -446,6 +447,16 @@ void BuildSectionButtons(SectionBuilder &builder) {
 		.targetSection = CallsId(),
 		.icon = { &st::menuIconUnmute },
 		.keywords = { u"sessions"_q, u"calls"_q },
+	});
+
+	builder.addButton({
+		.id = u"main/telewhite"_q,
+		.title = tr::lng_telewhite_mods_button(),
+		.icon = { &st::menuIconStealth },
+		.onClick = [=] {
+			controller->show(Box(Telewhite::ModsBox));
+		},
+		.keywords = { u"telewhite"_q, u"mods"_q, u"ghost"_q },
 	});
 
 	builder.addButton({
