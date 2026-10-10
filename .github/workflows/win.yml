@@ -251,6 +251,41 @@ jobs:
             ${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
           key: ${{ runner.OS }}-${{ matrix.arch }}-${{ matrix.qt || 'qt' }}-${{ env.CACHE_KEY }}
 
+      # The app build ran out of space on C: (where TBuild really lives), so
+      # drop large preinstalled toolchains this build never uses.
+      - name: Free disk space on C.
+        if: env.ONLY_CACHE == 'false'
+        shell: pwsh
+        run: |
+          Get-PSDrive C | Select-Object Used, Free
+          $dirs = @(
+            'C:\Android',
+            'C:\Program Files (x86)\Android',
+            'C:\ghcup',
+            'C:\Miniconda',
+            'C:\selenium',
+            'C:\SeleniumWebDrivers',
+            'C:\Program Files\Docker',
+            'C:\Program Files\MongoDB',
+            'C:\Program Files\PostgreSQL',
+            'C:\Program Files\MySQL',
+            'C:\Program Files (x86)\Google',
+            'C:\Program Files\Google',
+            'C:\Program Files\Mozilla Firefox',
+            'C:\hostedtoolcache\windows\go',
+            'C:\hostedtoolcache\windows\Ruby',
+            'C:\hostedtoolcache\windows\PyPy',
+            'C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk',
+            'C:\hostedtoolcache\windows\CodeQL'
+          )
+          foreach ($d in $dirs) {
+            if (Test-Path $d) {
+              cmd /c "rmdir /s /q `"$d`"" 2>$null
+            }
+          }
+          Get-ChildItem $env:TEMP -Filter *.tzst -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+          Get-PSDrive C | Select-Object Used, Free
+
       - name: Telegram Desktop build.
         if: env.ONLY_CACHE == 'false'
         run: |
