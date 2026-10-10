@@ -367,7 +367,11 @@ bool ValidateShortcut() {
 			return true;
 		}
 
-		path += u"Telegram.lnk"_q;
+		// Telewhite has its own AppUserModelId and toast activator, so it
+		// keeps its own shortcut instead of sharing Telegram.lnk with the
+		// official client; drop an old Telegram.lnk that points to us.
+		CleanupShortcut();
+		path += u"Telewhite.lnk"_q;
 		if (validateShortcutAt(path)) {
 			return true;
 		}
