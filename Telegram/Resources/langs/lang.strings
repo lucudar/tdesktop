@@ -724,6 +724,29 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_settings_pull_to_next_channel" = "Swipe to the next unread channel";
 "lng_settings_chat_show_seconds" = "Show seconds in timestamps";
 "lng_settings_chat_hide_stories" = "Hide stories bar";
+"lng_telewhite_mods_button" = "Telewhite Моды";
+"lng_telewhite_mods_title" = "Telewhite Моды";
+"lng_telewhite_mods_ghost" = "Режим призрака";
+"lng_telewhite_mods_ghost_read" = "Не отправлять «прочитано»";
+"lng_telewhite_mods_ghost_typing" = "Не отправлять «печатает…»";
+"lng_telewhite_mods_ghost_online" = "Всегда «не в сети»";
+"lng_telewhite_mods_ghost_stories" = "Смотреть истории анонимно";
+"lng_telewhite_mods_ghost_about" = "Собеседники не увидят, что вы прочитали сообщения или смотрели истории. Если вы сами отправите сообщение в чат, сервер отметит его прочитанным.";
+"lng_telewhite_mods_messages" = "Сообщения";
+"lng_telewhite_mods_save_deleted" = "Сохранять удалённые сообщения";
+"lng_telewhite_mods_save_deleted_about" = "Сообщения, удалённые собеседником, остаются в чате с пометкой. Работает, пока клиент открыт: после перезапуска они пропадут.";
+"lng_telewhite_mods_deleted_mark" = "🗑 удалено";
+"lng_telewhite_mods_clean" = "Чистый интерфейс";
+"lng_telewhite_mods_hide_sponsored" = "Скрыть рекламу в каналах";
+"lng_telewhite_mods_hide_emoji_status" = "Скрыть эмодзи-статусы";
+"lng_telewhite_mods_info" = "Информация";
+"lng_telewhite_mods_precise_last_seen" = "Точное время «был(а) в сети» с секундами";
+"lng_telewhite_mods_registration_date" = "Дата создания аккаунта в профиле";
+"lng_telewhite_mods_registration_label" = "Аккаунт создан";
+"lng_telewhite_mods_design" = "Дизайн";
+"lng_telewhite_mods_snowfall" = "Снегопад";
+"lng_telewhite_mods_amoled" = "Применить полностью чёрную тему";
+"lng_telewhite_mods_restart_about" = "Некоторые изменения применятся после повторного открытия чата.";
 
 "lng_settings_shortcuts" = "Keyboard shortcuts";
 

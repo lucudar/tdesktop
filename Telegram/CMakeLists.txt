@@ -1958,6 +1958,13 @@ PRIVATE
     settings/sections/settings_shortcuts.h
     settings/sections/settings_websites.cpp
     settings/sections/settings_websites.h
+    telewhite/telewhite_amoled_theme.h
+    telewhite/telewhite_mods.cpp
+    telewhite/telewhite_mods.h
+    telewhite/telewhite_mods_box.cpp
+    telewhite/telewhite_mods_box.h
+    telewhite/telewhite_snowfall.cpp
+    telewhite/telewhite_snowfall.h
     storage/details/storage_file_utilities.cpp
     storage/details/storage_file_utilities.h
     storage/details/storage_settings_scheme.cpp

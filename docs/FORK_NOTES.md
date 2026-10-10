@@ -55,6 +55,28 @@
       - Известные ограничения: кэш даты в списке чатов (`dialogs_entry.cpp`) не
         инвалидируется при переключении — нужен рестарт чата; уведомления-скринридер
         и «скопировать текст» пока показывают время без секунд (сознательно отложено).
+- [x] Батч 4 «Telewhite Моды» (10.10.2026, ветка `telewhite-mods`, ждёт сборки и теста):
+      - **Меню модов**: Настройки → «Telewhite Моды» (`telewhite/telewhite_mods_box.cpp`).
+        Все флаги — в `telewhite/telewhite_mods.cpp` (`Telewhite::Enabled(Mod::...)`), кэш в
+        `rpl::variable`, хранение через `writePref/readPref` (ключи `telewhite-*`),
+        загрузка в `Settings::addFromSerialized` → `Telewhite::LoadMods`.
+      - **Режим призрака**: без «прочитано» (`Histories::sendReadRequest`, `reportDelivery`),
+        без «печатает» (`SendProgressManager::skipRequest`), всегда офлайн
+        (`Updates::updateOnline`), анонимные истории (`Stories::sendMarkAsReadRequest`,
+        `sendIncrementViewsRequests`).
+      - **Сохранение удалённых**: `Session::processMessagesDeleted` /
+        `processNonChannelMessagesDeleted` не уничтожают сообщение, а дописывают «🗑 удалено».
+        Только в памяти — после перезапуска пропадают (своей БД, как у AyuGram, пока нет).
+      - **Скрыть рекламу** (`SponsoredMessages::canHaveFor`), **скрыть эмодзи-статусы**
+        (`PeerData::emojiStatusId`, кроме своего).
+      - **Точный «был в сети»** с секундами (`Data::OnlineText/OnlineTextFull`).
+      - **Дата создания аккаунта** в профиле — оценка по ID (таблица опорных точек, «~ месяц год»).
+      - **Снегопад**: прозрачный оверлей поверх `bodyWidget()` окна (`telewhite_snowfall.cpp`),
+        перерисовывает только области снежинок, на паузе при свёрнутом окне.
+      - **AMOLED-тема**: zip темы зашит байтами в `telewhite_amoled_theme.h` (MCP не умеет
+        бинарники), при нажатии пишется в `tdata/telewhite-amoled.tdesktop-theme` и применяется.
+      - Сознательно НЕ сделано: обход запрета пересылки/сохранения в защищённых каналах и
+        «локальный премиум» (обход платных ограничений).
 - [ ] Кастомная тема/дизайн (цвета, акценты, фон, шрифты) — задача пользователя, обсуждается.
 - [ ] Перевести сборку в Release (сейчас Debug: ~124 МБ и тормоза — для повседневного
       использования не годится). Debug собирается быстрее, Release тяжелее по времени,
@@ -92,3 +114,13 @@ git merge upstream/dev
 - Стиль кода: табы, без комментариев-комментариев очевидного, `auto` для типов,
   строки через `u"..."_q`, новые настройки — через `writePref/readPref` (не QDataStream!).
 - Требования к коммитам и стилю — в `AGENTS.md` и `REVIEW.md` в корне репозитория.
+
+## Ускорение CI (на будущее, не применено)
+
+- Не трогать `dev`, пока идёт сборка: в `win.yml` `concurrency: cancel-in-progress: true`
+  по ветке — новый пуш в ту же ветку отменяет текущий прогон. Фичи пушить в отдельную ветку.
+- Идеи: sccache/ccache для MSVC с кэшем в actions/cache; не собирать `Updater`;
+  `-D DESKTOP_APP_DISABLE_*` для ненужного (webrtc/звонки — если не нужны);
+  Ninja вместо MSBuild (уже `generator` в матрице); Release вместо Debug сделает клиент
+  быстрее, но саму сборку — дольше.
+
