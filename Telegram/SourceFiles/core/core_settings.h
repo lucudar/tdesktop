@@ -525,14 +525,14 @@ public:
 		return _cornerReply.value();
 	}
 	void setShowSeconds(bool value);
-	[[nodiscard]] bool showSeconds() const {
+	[[nodiscard]] bool showSeconds() {
 		return readPref<bool>(kShowSecondsKey, false);
 	}
 	void setHideStories(bool value) {
 		writePref<bool>(kHideStoriesKey, value);
 		_saveDelayed.fire({});
 	}
-	[[nodiscard]] bool hideStories() const {
+	[[nodiscard]] bool hideStories() {
 		return readPref<bool>(kHideStoriesKey, false);
 	}
 	void setPullToNextChannel(bool value) {
