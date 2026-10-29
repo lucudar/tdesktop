@@ -51,6 +51,22 @@ using FileKey = quint64;
 
 enum class StartResult : uchar;
 
+enum class TelewhiteData : uchar {
+	Archive,
+	LocalPins,
+};
+
+struct TelewhiteMediaStore {
+	QString folder;
+	MTP::AuthKeyPtr key;
+
+	// Blocking file I/O and crypto, meant to run on background threads.
+	[[nodiscard]] bool write(
+		const QString &name,
+		const QByteArray &bytes) const;
+	[[nodiscard]] QByteArray read(const QString &name) const;
+};
+
 struct MessageDraft {
 	FullReplyTo reply;
 	SuggestOptions suggest;
@@ -109,7 +125,6 @@ public:
 	void readDraftsWithCursors(not_null<History*> history);
 	void writeDraftCursors(not_null<History*> history);
 	[[nodiscard]] bool hasDraftCursors(PeerId peerId);
-	[[nodiscard]] bool hasDraft(PeerId peerId);
 
 	void writeFileLocation(
 		MediaKey location,
@@ -161,6 +176,13 @@ public:
 
 	void writeExportSettings(const Export::Settings &settings);
 	[[nodiscard]] Export::Settings readExportSettings();
+
+	void writeTelewhiteData(
+		TelewhiteData type,
+		const QByteArray &serialized,
+		bool sync);
+	[[nodiscard]] QByteArray readTelewhiteData(TelewhiteData type);
+	[[nodiscard]] TelewhiteMediaStore telewhiteMediaStore() const;
 
 	void setMediaLastPlaybackPosition(DocumentId id, crl::time time);
 	[[nodiscard]] crl::time mediaLastPlaybackPosition(DocumentId id) const;

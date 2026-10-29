@@ -46,6 +46,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/rect.h"
 #include "ui/ui_utility.h"
 #include "webrtc/webrtc_video_track.h"
+#include "telewhite/telewhite_mods.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
 #include "styles/style_history_view_voice_record_bar.h"
@@ -2810,7 +2811,9 @@ void VoiceRecordBar::recordUpdated(quint16 level, int samples) {
 void VoiceRecordBar::stop(bool send) {
 	if (isHidden() && !send) {
 		return;
-	} else if (send && _pauseInsteadSend) {
+	} else if (send
+		&& (_pauseInsteadSend
+			|| Telewhite::Enabled(Telewhite::Mod::ConfirmVoice))) {
 		_fullRecord = true;
 		stopRecording(StopType::Listen);
 		_lockShowing = false;
@@ -3239,10 +3242,6 @@ float64 VoiceRecordBar::showListenAnimationRatio() const {
 		return value * value;
 	}
 	return value;
-}
-
-void VoiceRecordBar::computeAndSetLockProgress(QPoint globalPos) {
-	_lock->requestPaintProgress(calcLockProgress(globalPos));
 }
 
 float64 VoiceRecordBar::calcLockProgress(QPoint globalPos) {
