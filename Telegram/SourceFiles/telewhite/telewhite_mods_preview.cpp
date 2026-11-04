@@ -373,10 +373,42 @@ struct BubbleSpec {
 	int checks = 0;
 	bool edited = false;
 	bool deleted = false;
+	bool tail = false;
+	bool muted = false; // Gray italic text, like the unavailable messages.
+	QString previous; // Previous version of the text, painted pale below.
 };
 
 [[nodiscard]] double BubbleHeight(const Canvas &k, const BubbleSpec &spec) {
-	return (spec.header.isEmpty() ? 22.5 : 35.) * k.s;
+	return (spec.header.isEmpty() ? 22.5 : 35.) * k.s
+		+ (spec.previous.isEmpty() ? 0. : (13.5 * k.s));
+}
+
+void BubbleTail(
+		const Canvas &k,
+		const QRectF &rect,
+		bool out,
+		const QColor &color) {
+	const auto u = k.s;
+	const auto bottom = rect.y() + rect.height();
+	const auto edge = out ? (rect.x() + rect.width()) : rect.x();
+	const auto inside = out ? -1. : 1.;
+	k.p.setPen(Qt::NoPen);
+	k.p.setBrush(color);
+	k.p.drawRect(QRectF(
+		out ? (edge - 8. * u) : edge,
+		bottom - 8. * u,
+		8. * u,
+		8. * u));
+	auto path = QPainterPath();
+	path.moveTo(edge + inside * 2. * u, bottom - 9. * u);
+	path.quadTo(
+		edge,
+		bottom - 1.5 * u,
+		edge - inside * 4.5 * u,
+		bottom);
+	path.lineTo(edge + inside * 2. * u, bottom);
+	path.closeSubpath();
+	k.p.drawPath(path);
 }
 
 QRectF Bubble(
@@ -401,13 +433,20 @@ QRectF Bubble(
 		: 0.;
 	const auto trashW = spec.deleted ? (9.5 * u) : 0.;
 	const auto timeW = timeTextW + checksW + trashW;
-	const auto textW = TextWidth(textFont, spec.text);
+	auto textFontUsed = textFont;
+	textFontUsed.setItalic(spec.muted);
+	const auto textW = TextWidth(textFontUsed, spec.text);
+	const auto previousW = spec.previous.isEmpty()
+		? 0.
+		: TextWidth(textFont, spec.previous);
+	const auto lastW = spec.previous.isEmpty() ? textW : previousW;
+	const auto firstW = spec.previous.isEmpty() ? 0. : textW;
 	const auto headerW = spec.header.isEmpty()
 		? 0.
 		: TextWidth(headerFont, spec.header);
 	const auto maxInner = area.width() * 0.92 - 2. * padX;
 	const auto innerW = std::min(
-		std::max(textW + 6. * u + timeW, headerW),
+		std::max({ lastW + 7. * u + timeW, firstW + 1. * u, headerW }),
 		maxInner);
 	const auto width = innerW + 2. * padX;
 	const auto height = BubbleHeight(k, spec);
@@ -423,6 +462,9 @@ QRectF Bubble(
 	const auto fg = spec.out ? k.c.outFg : k.c.inFg;
 	const auto sub = spec.out ? k.c.outSub : k.c.inSub;
 	FillRound(k, rect, 8. * u, dim(bg));
+	if (spec.tail) {
+		BubbleTail(k, rect, spec.out, dim(bg));
+	}
 
 	auto y = top + padTop;
 	if (headerH > 0.) {
@@ -434,12 +476,28 @@ QRectF Bubble(
 			dim(spec.out ? k.c.outSub : k.c.accent));
 		y += headerH;
 	}
-	DrawText(
-		k,
-		QRectF(left + padX, y, innerW - timeW - 6. * u, lineH),
-		spec.text,
-		textFont,
-		dim(fg));
+	if (spec.previous.isEmpty()) {
+		DrawText(
+			k,
+			QRectF(left + padX, y, innerW - timeW - 6. * u, lineH),
+			spec.text,
+			textFontUsed,
+			dim(spec.muted ? sub : fg));
+	} else {
+		DrawText(
+			k,
+			QRectF(left + padX, y, innerW, lineH),
+			spec.text,
+			textFontUsed,
+			dim(spec.muted ? sub : fg));
+		y += lineH;
+		DrawText(
+			k,
+			QRectF(left + padX, y, innerW - timeW - 6. * u, lineH),
+			spec.previous,
+			textFont,
+			dim(Alpha(fg, 0.45)));
+	}
 
 	const auto timeTop = y + 2. * u;
 	const auto timeCenter = timeTop + lineH / 2.;
@@ -1430,6 +1488,671 @@ void SceneSnowfall(const Canvas &k, const QRectF &r, bool on) {
 	}
 }
 
+void DashedGhost(
+		const Canvas &k,
+		const QRectF &rect,
+		const QString &text) {
+	const auto u = k.s;
+	auto pen = QPen(Alpha(k.c.sub, 0.75), 1. * u, Qt::DashLine);
+	pen.setDashPattern(QList<qreal>{ 3., 2.5 });
+	k.p.setPen(pen);
+	k.p.setBrush(Qt::NoBrush);
+	k.p.drawRoundedRect(rect, 8. * u, 8. * u);
+	DrawText(
+		k,
+		rect.adjusted(7. * u, 0., -7. * u, 0.),
+		text,
+		FontOf(k, 9.5),
+		k.c.sub);
+}
+
+void Clock(
+		const Canvas &k,
+		const QPointF &center,
+		double radius,
+		const QColor &color) {
+	const auto u = k.s;
+	k.p.setPen(PenOf(color, 1.1 * u));
+	k.p.setBrush(Qt::NoBrush);
+	k.p.drawEllipse(center, radius, radius);
+	StrokeLine(
+		k,
+		center,
+		center + QPointF(0., -radius * 0.6),
+		color,
+		1.1 * u);
+	StrokeLine(
+		k,
+		center,
+		center + QPointF(radius * 0.45, radius * 0.2),
+		color,
+		1.1 * u);
+}
+
+void ServiceCard(
+		const Canvas &k,
+		const QRectF &rect) {
+	const auto dark = IsDark(k.c.chat);
+	FillRound(
+		k,
+		rect,
+		9. * k.s,
+		Alpha(QColor(0, 0, 0), dark ? 0.38 : 0.26));
+}
+
+void AppIcon(
+		const Canvas &k,
+		const QPointF &center,
+		double radius,
+		const QColor &color) {
+	auto gradient = QLinearGradient(
+		center - QPointF(0., radius),
+		center + QPointF(0., radius));
+	gradient.setColorAt(0., color.lighter(125));
+	gradient.setColorAt(1., color);
+	k.p.setPen(Qt::NoPen);
+	k.p.setBrush(gradient);
+	k.p.drawEllipse(center, radius, radius);
+
+	// Paper plane.
+	const auto point = [&](double x, double y) {
+		return QPointF(center.x() + x * radius, center.y() + y * radius);
+	};
+	auto plane = QPolygonF();
+	plane << point(-0.5, -0.02)
+		<< point(0.42, -0.4)
+		<< point(0.26, 0.42)
+		<< point(0.02, 0.24)
+		<< point(-0.1, 0.38)
+		<< point(-0.12, 0.13);
+	k.p.setBrush(QColor(0xff, 0xff, 0xff));
+	k.p.drawPolygon(plane);
+	k.p.setPen(PenOf(Alpha(color, 0.55), std::max(0.6, radius * 0.07)));
+	k.p.drawLine(point(-0.12, 0.13), point(0.42, -0.4));
+}
+
+void StoryRing(const Canvas &k, const QPointF &center, double radius) {
+	auto gradient = QLinearGradient(
+		center + QPointF(-radius, radius),
+		center + QPointF(radius, -radius));
+	gradient.setColorAt(0., QColor(0x4f, 0xd1, 0x7a));
+	gradient.setColorAt(1., k.c.accent);
+	k.p.setPen(QPen(QBrush(gradient), 1.5 * k.s));
+	k.p.setBrush(Qt::NoBrush);
+	k.p.drawEllipse(center, radius, radius);
+}
+
+void MapPin(const Canvas &k, const QPointF &tip, double size) {
+	const auto head = QPointF(tip.x(), tip.y() - size * 1.15);
+	auto path = QPainterPath();
+	path.moveTo(tip);
+	path.cubicTo(
+		QPointF(tip.x() - size * 0.35, tip.y() - size * 0.45),
+		QPointF(head.x() - size, head.y() + size * 0.55),
+		QPointF(head.x() - size, head.y()));
+	path.arcTo(
+		QRectF(head.x() - size, head.y() - size, 2. * size, 2. * size),
+		180.,
+		-180.);
+	path.cubicTo(
+		QPointF(head.x() + size, head.y() + size * 0.55),
+		QPointF(tip.x() + size * 0.35, tip.y() - size * 0.45),
+		tip);
+	k.p.setPen(Qt::NoPen);
+	k.p.setBrush(k.c.attention);
+	k.p.drawPath(path);
+	FillCircle(k, head, size * 0.4, QColor(0xff, 0xff, 0xff));
+}
+
+void MapTile(
+		const Canvas &k,
+		const QRectF &rect,
+		const QString &label,
+		int variant) {
+	const auto u = k.s;
+	const auto dark = IsDark(k.c.chat);
+	const auto land = dark ? QColor(0x2e, 0x3b, 0x35) : QColor(0xe6, 0xef, 0xdc);
+	const auto water = dark ? QColor(0x27, 0x3f, 0x5c) : QColor(0xb9, 0xd8, 0xf2);
+	const auto road = dark
+		? QColor(0x55, 0x60, 0x6b)
+		: QColor(0xff, 0xff, 0xff);
+	const auto radius = 8. * u;
+
+	k.p.save();
+	auto clip = QPainterPath();
+	clip.addRoundedRect(rect, radius, radius);
+	k.p.setClipPath(clip, Qt::IntersectClip);
+	k.p.fillRect(rect, land);
+
+	const auto at = [&](double x, double y) {
+		return QPointF(
+			rect.x() + x * rect.width(),
+			rect.y() + y * rect.height());
+	};
+	if (variant) {
+		// River through the city.
+		auto river = QPainterPath();
+		river.moveTo(at(-0.05, 0.25));
+		river.cubicTo(at(0.3, 0.1), at(0.45, 0.6), at(1.05, 0.42));
+		k.p.setPen(QPen(water, 6. * u, Qt::SolidLine, Qt::RoundCap));
+		k.p.setBrush(Qt::NoBrush);
+		k.p.drawPath(river);
+	} else {
+		k.p.setPen(Qt::NoPen);
+		k.p.setBrush(water);
+		k.p.drawEllipse(at(0.9, 0.05), 0.3 * rect.width(), 0.32 * rect.height());
+	}
+	const auto roads = variant
+		? std::array<std::array<double, 4>, 4>{ {
+			{ 0.1, 1., 0.55, 0. },
+			{ 0., 0.75, 1., 0.62 },
+			{ 0.7, 1., 0.95, 0. },
+			{ 0.3, 0., 0.25, 1. },
+		} }
+		: std::array<std::array<double, 4>, 4>{ {
+			{ 0., 0.35, 1., 0.3 },
+			{ 0., 0.8, 1., 0.72 },
+			{ 0.28, 0., 0.33, 1. },
+			{ 0.72, 0., 0.66, 1. },
+		} };
+	for (const auto &line : roads) {
+		StrokeLine(
+			k,
+			at(line[0], line[1]),
+			at(line[2], line[3]),
+			road,
+			2.2 * u);
+	}
+	MapPin(k, at(0.5, 0.62), 5. * u);
+
+	const auto strip = QRectF(
+		rect.x(),
+		rect.y() + rect.height() - 15. * u,
+		rect.width(),
+		15. * u);
+	k.p.fillRect(strip, k.c.inBg);
+	DrawText(
+		k,
+		strip.adjusted(6. * u, 0., -6. * u, 0.),
+		label,
+		FontOf(k, 9., true),
+		k.c.inFg);
+	k.p.restore();
+}
+
+void SceneKeepOwnDeleted(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	Caption(k, r, r.y(), U("Вы удалили у всех"));
+	const auto top = r.y() + 16. * u;
+	if (on) {
+		Bubble(k, r, top, {
+			.text = U("Не туда!"),
+			.time = U("12:30"),
+			.out = true,
+			.checks = 2,
+			.deleted = true,
+		});
+		DrawText(
+			k,
+			QRectF(r.x(), top + 28. * u, r.width(), 12. * u),
+			U("у собеседника удалено"),
+			FontOf(k, 9.),
+			k.c.sub,
+			int(Qt::AlignRight));
+		DrawText(
+			k,
+			QRectF(r.x(), top + 40. * u, r.width(), 12. * u),
+			U("а у вас — копия"),
+			FontOf(k, 9.),
+			k.c.sub,
+			int(Qt::AlignRight));
+	} else {
+		const auto width = r.width() * 0.8;
+		DashedGhost(
+			k,
+			QRectF(r.x() + r.width() - width, top, width, 22.5 * u),
+			U("сообщение исчезло"));
+	}
+}
+
+void SceneKeepTimerMessages(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	Clock(k, QPointF(r.x() + 5. * u, r.y() + 6. * u), 4.5 * u, k.c.sub);
+	DrawText(
+		k,
+		QRectF(r.x() + 13. * u, r.y(), r.width() - 13. * u, 12. * u),
+		U("автоудаление: 1 день"),
+		FontOf(k, 9.),
+		k.c.sub);
+	const auto top = r.y() + 17. * u;
+	if (on) {
+		Bubble(k, r, top, {
+			.text = U("Код: 4821"),
+			.time = U("12:30"),
+			.deleted = true,
+		});
+		DrawText(
+			k,
+			QRectF(r.x(), top + 28. * u, r.width(), 12. * u),
+			U("таймер истёк,"),
+			FontOf(k, 9.),
+			k.c.sub);
+		DrawText(
+			k,
+			QRectF(r.x(), top + 40. * u, r.width(), 12. * u),
+			U("а сообщение осталось"),
+			FontOf(k, 9.),
+			k.c.sub);
+	} else {
+		DashedGhost(
+			k,
+			QRectF(r.x(), top, r.width() * 0.8, 22.5 * u),
+			U("сообщение исчезло"));
+	}
+}
+
+void SceneEditHistoryInline(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	const auto bubble = Bubble(k, r, r.y(), {
+		.text = U("Встреча в 9"),
+		.time = U("12:31"),
+		.edited = true,
+		.previous = on ? U("Встреча в 8") : QString(),
+	});
+	const auto top = bubble.y() + bubble.height() + 6. * u;
+	DrawText(
+		k,
+		QRectF(r.x(), top, r.width(), 12. * u),
+		on ? U("прежний текст — сразу виден") : U("прежний текст — только в меню"),
+		FontOf(k, 9.),
+		k.c.sub);
+}
+
+void SceneAntiCaps(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	Caption(k, r, r.y(), U("Вы набрали"));
+	const auto field = QRectF(r.x(), r.y() + 14. * u, r.width(), 18. * u);
+	FillRound(k, field, 9. * u, k.c.inBg);
+	DrawText(
+		k,
+		field.adjusted(8. * u, 0., -8. * u, 0.),
+		U("ПРИВЕТ ВСЕМ"),
+		FontOf(k, 9.5),
+		k.c.inFg);
+	Caption(k, r, field.y() + field.height() + 5. * u, U("Уйдёт в чат"));
+	const auto spec = BubbleSpec{
+		.text = on ? U("Привет всем") : U("ПРИВЕТ ВСЕМ"),
+		.time = U("12:30"),
+		.out = true,
+		.checks = 1,
+	};
+	Bubble(k, r, r.y() + r.height() - BubbleHeight(k, spec), spec);
+}
+
+void SceneNoSpoilers(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	const auto prefix = U("Убийца — ");
+	const auto hidden = U("повар");
+	const auto bubble = Bubble(k, r, r.y(), {
+		.text = prefix + hidden,
+		.time = U("12:30"),
+	});
+	if (!on) {
+		const auto font = FontOf(k, 10.5);
+		const auto x = bubble.x() + 7. * u + TextWidth(font, prefix);
+		const auto rect = QRectF(
+			x - 1. * u,
+			bubble.y() + 5.5 * u,
+			TextWidth(font, hidden) + 2. * u,
+			11.5 * u);
+		FillRound(k, rect, 3. * u, k.c.inBg);
+		Spoiler(k, rect, k.c.inFg);
+	}
+	const auto top = bubble.y() + bubble.height() + 5. * u;
+	const auto photo = QRectF(
+		r.x(),
+		top,
+		std::min(r.width() * 0.62, 90. * u),
+		r.y() + r.height() - top);
+	auto gradient = QLinearGradient(photo.topLeft(), photo.bottomRight());
+	gradient.setColorAt(0., QColor(0xff, 0xb3, 0x47));
+	gradient.setColorAt(1., QColor(0xe8, 0x5d, 0x8a));
+	k.p.setPen(Qt::NoPen);
+	k.p.setBrush(gradient);
+	k.p.drawRoundedRect(photo, 8. * u, 8. * u);
+	if (on) {
+		FillCircle(
+			k,
+			QPointF(photo.x() + photo.width() * 0.7, photo.y() + 10. * u),
+			5. * u,
+			QColor(0xff, 0xf3, 0xc4));
+		auto hills = QPainterPath();
+		hills.moveTo(photo.x(), photo.y() + photo.height());
+		hills.lineTo(photo.x(), photo.y() + photo.height() * 0.7);
+		hills.quadTo(
+			photo.x() + photo.width() * 0.3,
+			photo.y() + photo.height() * 0.35,
+			photo.x() + photo.width() * 0.6,
+			photo.y() + photo.height() * 0.75);
+		hills.quadTo(
+			photo.x() + photo.width() * 0.8,
+			photo.y() + photo.height() * 0.55,
+			photo.x() + photo.width(),
+			photo.y() + photo.height() * 0.7);
+		hills.lineTo(photo.x() + photo.width(), photo.y() + photo.height());
+		hills.closeSubpath();
+		k.p.save();
+		auto clip = QPainterPath();
+		clip.addRoundedRect(photo, 8. * u, 8. * u);
+		k.p.setClipPath(clip, Qt::IntersectClip);
+		k.p.setPen(Qt::NoPen);
+		k.p.setBrush(QColor(0x6b, 0x3f, 0x8f, 200));
+		k.p.drawPath(hills);
+		k.p.restore();
+	} else {
+		FillRound(k, photo, 8. * u, Alpha(QColor(0x40, 0x40, 0x48), 0.55));
+		Spoiler(k, photo.adjusted(3. * u, 3. * u, -3. * u, -3. * u), QColor(0xff, 0xff, 0xff));
+	}
+}
+
+void SceneNoGreetingSticker(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	const auto width = r.width() * 0.9;
+	const auto height = on ? (44. * u) : r.height();
+	const auto card = QRectF(
+		r.x() + (r.width() - width) / 2.,
+		r.y() + (r.height() - height) / 2.,
+		width,
+		height);
+	ServiceCard(k, card);
+	const auto white = QColor(0xff, 0xff, 0xff);
+	const auto inner = card.adjusted(6. * u, 5. * u, -6. * u, 0.);
+	DrawText(
+		k,
+		QRectF(inner.x(), inner.y(), inner.width(), 12. * u),
+		U("Сообщений пока нет"),
+		FontOf(k, 9.5, true),
+		white,
+		kCenter);
+	const auto font = FontOf(k, 8.5);
+	auto y = inner.y() + 13. * u;
+	const auto text = on
+		? U("Отправьте сообщение, чтобы начать переписку.")
+		: U("Отправьте сообщение или нажмите на приветствие.");
+	for (const auto &line : Wrap(text, font, inner.width(), 2)) {
+		DrawText(
+			k,
+			QRectF(inner.x(), y, inner.width(), 11. * u),
+			line,
+			font,
+			Alpha(white, 0.85),
+			kCenter);
+		y += 11. * u;
+	}
+	if (!on) {
+		Face(k, QPointF(card.center().x(), y + 13. * u), 11. * u);
+	}
+}
+
+void SceneBypassRestrictions(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	Row(k, r, r.y(), 10., {
+		.letter = U("Н"),
+		.avatar = QColor(0x5c, 0xaf, 0xfa),
+		.name = U("Новости"),
+		.status = on ? U("канал") : U("недоступен"),
+		.statusColor = on ? k.c.sub : k.c.attention,
+	});
+	const auto top = r.y() + 28. * u;
+	Bubble(k, r, top, {
+		.text = on ? U("Свежий выпуск!") : U("Недоступно"),
+		.time = U("12:30"),
+		.muted = !on,
+	});
+}
+
+void SceneTranslateChats(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	auto top = r.y();
+	if (on) {
+		const auto bar = QRectF(r.x() - 9. * u, r.y() - 6. * u, r.width() + 18. * u, 20. * u);
+		k.p.fillRect(bar, k.c.bg);
+		DrawText(
+			k,
+			bar.adjusted(0., 3. * u, 0., 0.),
+			U("Перевести на русский"),
+			FontOf(k, 9.5, true),
+			k.c.accent,
+			kCenter);
+		top += 20. * u;
+	} else {
+		Caption(k, r, r.y(), U("панели перевода нет"));
+		top += 16. * u;
+	}
+	const auto first = Bubble(k, r, top, {
+		.text = on ? U("Доброе утро!") : U("Good morning!"),
+		.time = U("12:30"),
+	});
+	Bubble(k, r, first.y() + first.height() + 4. * u, {
+		.text = on ? U("Спасибо!") : U("Thanks!"),
+		.time = U("12:31"),
+		.out = true,
+		.checks = 2,
+	});
+}
+
+void SceneFakeLocation(const Canvas &k, const QRectF &r, bool on) {
+	MapTile(
+		k,
+		r,
+		on ? U("Париж, Франция") : U("Ваше настоящее место"),
+		on ? 1 : 0);
+}
+
+void SceneThemedIcon(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	const auto violet = QColor(0x7a, 0x5c, 0xf5);
+	Caption(
+		k,
+		r,
+		r.y(),
+		on ? U("меняется вместе с темой") : U("при любой теме фиолетовая"));
+	const auto themes = std::array<QColor, 3>{
+		QColor(0x33, 0x90, 0xec),
+		QColor(0x4f, 0xae, 0x4e),
+		QColor(0xe8, 0x5d, 0x8a),
+	};
+	auto x = r.x() + 7. * u;
+	for (const auto &color : themes) {
+		const auto center = QPointF(x, r.y() + 25. * u);
+		k.p.setPen(PenOf(Alpha(color, 0.9), 1.4 * u));
+		k.p.setBrush(Qt::NoBrush);
+		k.p.drawEllipse(center, 7.6 * u, 7.6 * u);
+		AppIcon(k, center, 5.4 * u, on ? color : violet);
+		x += 21. * u;
+	}
+	const auto bar = QRectF(
+		r.x() - 9. * u,
+		r.y() + r.height() - 30. * u,
+		r.width() + 18. * u,
+		38. * u);
+	k.p.fillRect(bar, Mix(k.c.bg, k.c.fg, IsDark(k.c.bg) ? 0.08 : 0.06));
+	const auto center = QPointF(r.center().x(), bar.y() + 14. * u);
+	for (const auto shift : { -44., -22., 22., 44. }) {
+		FillRound(
+			k,
+			QRectF(
+				center.x() + shift * u - 7. * u,
+				center.y() - 7. * u,
+				14. * u,
+				14. * u),
+			4. * u,
+			Alpha(k.c.sub, 0.4));
+	}
+	const auto color = on ? k.c.accent : violet;
+	AppIcon(k, center, 9. * u, color);
+	StrokeLine(
+		k,
+		QPointF(center.x() - 5. * u, bar.y() + 27. * u),
+		QPointF(center.x() + 5. * u, bar.y() + 27. * u),
+		color,
+		1.8 * u);
+}
+
+void SceneNoBubbleTails(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	const auto area = r.adjusted(4. * u, 0., -4. * u, 0.);
+	Bubble(k, area, r.y() + 6. * u, {
+		.text = U("Привет!"),
+		.time = U("12:30"),
+		.tail = !on,
+	});
+	Bubble(k, area, r.y() + 36. * u, {
+		.text = U("Как дела?"),
+		.time = U("12:31"),
+		.out = true,
+		.checks = 2,
+		.tail = !on,
+	});
+}
+
+void SceneAuthorOnline(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	const auto radius = 8. * u;
+	const auto area = r.adjusted(2. * radius + 5. * u, 0., 0., 0.);
+	const auto first = Bubble(k, area, r.y(), {
+		.text = U("Я тут!"),
+		.time = U("12:30"),
+		.header = U("Аня"),
+	});
+	Avatar(
+		k,
+		QPointF(r.x() + radius, first.y() + first.height() - radius),
+		radius,
+		QColor(0xff, 0x8a, 0xac),
+		U("А"),
+		on);
+	const auto second = Bubble(k, area, first.y() + first.height() + 4. * u, {
+		.text = U("Скоро буду"),
+		.time = U("12:31"),
+		.header = U("Олег"),
+	});
+	Avatar(
+		k,
+		QPointF(r.x() + radius, second.y() + second.height() - radius),
+		radius,
+		QColor(0x5c, 0xaf, 0xfa),
+		U("О"),
+		false);
+}
+
+void SceneHideStoryRings(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	const auto rows = std::array<RowSpec, 3>{ {
+		{
+			.letter = U("А"),
+			.avatar = QColor(0xff, 0x8a, 0xac),
+			.name = U("Аня"),
+			.status = U("Смотри!"),
+			.statusColor = k.c.sub,
+		},
+		{
+			.letter = U("О"),
+			.avatar = QColor(0x5c, 0xaf, 0xfa),
+			.name = U("Олег"),
+			.status = U("До завтра"),
+			.statusColor = k.c.sub,
+		},
+		{
+			.letter = U("М"),
+			.avatar = QColor(0x9a, 0xd1, 0x64),
+			.name = U("Мама"),
+			.status = U("Позвони"),
+			.statusColor = k.c.sub,
+		},
+	} };
+	auto top = r.y() + 2. * u;
+	for (auto i = 0; i != int(rows.size()); ++i) {
+		const auto height = Row(k, r.adjusted(2. * u, 0., 0., 0.), top, 9., rows[i]);
+		if (!on && i < 2) {
+			StoryRing(
+				k,
+				QPointF(r.x() + 2. * u + 9. * u, top + height / 2.),
+				11.8 * u);
+		}
+		top += 25. * u;
+	}
+}
+
+void SceneSnowfallChats(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	const auto list = QRectF(
+		r.x() - 9. * u,
+		r.y() - 23. * u,
+		r.width() * 0.32 + 9. * u,
+		r.height() + 31. * u);
+	k.p.fillRect(list, k.c.bg);
+	const auto colors = std::array<QColor, 3>{
+		QColor(0xff, 0x8a, 0xac),
+		QColor(0x5c, 0xaf, 0xfa),
+		QColor(0x9a, 0xd1, 0x64),
+	};
+	for (auto i = 0; i != 3; ++i) {
+		const auto center = QPointF(
+			r.x() + 7. * u,
+			r.y() + 10. * u + i * 21. * u);
+		FillCircle(k, center, 7. * u, colors[i]);
+		FillRound(
+			k,
+			QRectF(center.x() + 10. * u, center.y() - 2.5 * u, list.x() + list.width() - center.x() - 14. * u, 5. * u),
+			2.5 * u,
+			Alpha(k.c.sub, 0.4));
+	}
+	const auto chat = QRectF(
+		list.x() + list.width() + 6. * u,
+		r.y(),
+		r.x() + r.width() - (list.x() + list.width() + 6. * u),
+		r.height());
+	Bubble(k, chat, chat.y() + 8. * u, {
+		.text = U("Снег!"),
+		.time = U("9:41"),
+	});
+	Bubble(k, chat, chat.y() + 38. * u, {
+		.text = U("Ура!"),
+		.time = U("9:42"),
+		.out = true,
+		.checks = 2,
+	});
+	if (!on) {
+		return;
+	}
+	const auto color = IsDark(k.c.chat)
+		? QColor(0xff, 0xff, 0xff)
+		: Mix(k.c.accent, QColor(0xff, 0xff, 0xff), 0.3);
+	constexpr auto kFlakes = std::array<std::array<double, 3>, 11>{ {
+		{ 0.06, 0.05, 1.3 },
+		{ 0.35, 0.02, 1.0 },
+		{ 0.7, 0.08, 1.6 },
+		{ 0.95, 0.2, 1.1 },
+		{ 0.12, 0.45, 1.0 },
+		{ 0.55, 0.5, 1.4 },
+		{ 0.85, 0.62, 1.0 },
+		{ 0.25, 0.85, 1.5 },
+		{ 0.6, 0.95, 1.1 },
+		{ 0.92, 0.9, 1.3 },
+		{ 0.42, 0.7, 0.9 },
+	} };
+	for (const auto &flake : kFlakes) {
+		FillCircle(
+			k,
+			QPointF(
+				chat.x() + flake[0] * chat.width(),
+				chat.y() - 14. * u + flake[1] * (chat.height() + 14. * u)),
+			flake[2] * u,
+			Alpha(color, 0.9));
+	}
+}
+
 void SceneTheme(const Canvas &k, Scene scene, const QRectF &r, bool on) {
 	if (!on) {
 		MiniWindow(k, r);
@@ -1463,6 +2186,20 @@ void PaintScene(const Canvas &k, Scene scene, bool on, const QRectF &r) {
 	case Scene::ShowSeconds: SceneShowSeconds(k, r, on); return;
 	case Scene::RegistrationDate: SceneRegistrationDate(k, r, on); return;
 	case Scene::Snowfall: SceneSnowfall(k, r, on); return;
+	case Scene::KeepOwnDeleted: SceneKeepOwnDeleted(k, r, on); return;
+	case Scene::KeepTimerMessages: SceneKeepTimerMessages(k, r, on); return;
+	case Scene::EditHistoryInline: SceneEditHistoryInline(k, r, on); return;
+	case Scene::AntiCaps: SceneAntiCaps(k, r, on); return;
+	case Scene::NoSpoilers: SceneNoSpoilers(k, r, on); return;
+	case Scene::NoGreetingSticker: SceneNoGreetingSticker(k, r, on); return;
+	case Scene::BypassRestrictions: SceneBypassRestrictions(k, r, on); return;
+	case Scene::TranslateChats: SceneTranslateChats(k, r, on); return;
+	case Scene::FakeLocation: SceneFakeLocation(k, r, on); return;
+	case Scene::ThemedIcon: SceneThemedIcon(k, r, on); return;
+	case Scene::NoBubbleTails: SceneNoBubbleTails(k, r, on); return;
+	case Scene::AuthorOnline: SceneAuthorOnline(k, r, on); return;
+	case Scene::HideStoryRings: SceneHideStoryRings(k, r, on); return;
+	case Scene::SnowfallChats: SceneSnowfallChats(k, r, on); return;
 	case Scene::ThemeLight:
 	case Scene::ThemeDark:
 	case Scene::ThemeAmoled: SceneTheme(k, scene, r, on); return;
@@ -1570,7 +2307,21 @@ QString SceneTitle(Scene scene) {
 	case Scene::PreciseLastSeen: return U("Точное время «был(а) в сети»");
 	case Scene::ShowSeconds: return U("Секунды во времени сообщений");
 	case Scene::RegistrationDate: return U("Дата создания аккаунта");
-	case Scene::Snowfall: return U("Снегопад");
+	case Scene::Snowfall: return U("Снегопад поверх окна");
+	case Scene::KeepOwnDeleted: return U("Сохранять мои удалённые у всех");
+	case Scene::KeepTimerMessages: return U("Не удалять исчезающие сообщения");
+	case Scene::EditHistoryInline: return U("Прежний текст прямо в сообщении");
+	case Scene::AntiCaps: return U("Анти-капс");
+	case Scene::NoSpoilers: return U("Показывать спойлеры сразу");
+	case Scene::NoGreetingSticker: return U("Без приветственного стикера");
+	case Scene::BypassRestrictions: return U("Открывать ограниченное");
+	case Scene::TranslateChats: return U("Перевод чатов без Premium");
+	case Scene::FakeLocation: return U("Подменять геопозицию");
+	case Scene::ThemedIcon: return U("Иконка в цвет темы");
+	case Scene::NoBubbleTails: return U("Сообщения без «хвостиков»");
+	case Scene::AuthorOnline: return U("Кто из авторов в сети");
+	case Scene::HideStoryRings: return U("Скрыть кольца историй");
+	case Scene::SnowfallChats: return U("Снегопад в чатах");
 	case Scene::ThemeLight: return U("Светлая тема Telewhite");
 	case Scene::ThemeDark: return U("Тёмная тема Telewhite");
 	case Scene::ThemeAmoled: return U("Полностью чёрная тема");
@@ -1601,7 +2352,21 @@ QString SceneHint(Scene scene) {
 	case Scene::PreciseLastSeen: return U("Вместо «5 минут назад» — точное время последнего визита с секундами.");
 	case Scene::ShowSeconds: return U("У каждого сообщения время показывается с секундами.");
 	case Scene::RegistrationDate: return U("В профиле появляется примерная дата создания аккаунта, группы или канала.");
-	case Scene::Snowfall: return U("Поверх окна мягко падает снег. Клики проходят сквозь снежинки.");
+	case Scene::Snowfall: return U("Поверх всего окна мягко падает снег. Клики проходят сквозь снежинки.");
+	case Scene::KeepOwnDeleted: return U("Сообщение, которое вы удалили у всех, у собеседника пропадёт, а у вас останется полупрозрачной копией.");
+	case Scene::KeepTimerMessages: return U("Когда срабатывает таймер автоудаления, сообщение не пропадает, а остаётся полупрозрачным с корзинкой. Одноразовые фото и видео исчезают как обычно.");
+	case Scene::EditHistoryInline: return U("Под текстом изменённого сообщения бледно видны его прежние версии — без лишних кликов.");
+	case Scene::AntiCaps: return U("Сообщение, набранное КАПСОМ, уходит в обычном регистре. Ссылки, упоминания и код не трогаются.");
+	case Scene::NoSpoilers: return U("Текст, фото и видео под спойлером видны сразу — не нужно нажимать на них.");
+	case Scene::NoGreetingSticker: return U("В новом пустом чате нет случайного стикера-приветствия, только короткая подсказка.");
+	case Scene::BypassRestrictions: return U("Каналы и сообщения, скрытые пометкой платформы, открываются, если сервер прислал их содержимое.");
+	case Scene::TranslateChats: return U("Панель «Перевести» над чатом работает без Premium: тексты переводит Google.");
+	case Scene::FakeLocation: return U("В окне отправки геопозиции вместо настоящего места — выбранный город или ваши координаты.");
+	case Scene::ThemedIcon: return U("Значок на панели задач, в трее и у окон перекрашивается под цвет темы.");
+	case Scene::NoBubbleTails: return U("У облачков сообщений нет «хвостиков» — все углы одинаково скруглены.");
+	case Scene::AuthorOnline: return U("В группах на аватарке автора сообщения горит зелёная точка, пока он в сети.");
+	case Scene::HideStoryRings: return U("Вокруг аватарок в списке чатов больше нет цветных колец непросмотренных историй.");
+	case Scene::SnowfallChats: return U("Снег падает только в области сообщений открытого чата, не мешая списку чатов.");
 	case Scene::ThemeLight: return U("Белый фон и фиолетовые акценты. Нажмите, чтобы применить.");
 	case Scene::ThemeDark: return U("Ночная тема с фиолетовым акцентом. Нажмите, чтобы применить.");
 	case Scene::ThemeAmoled: return U("Чистый чёрный фон — для OLED-экранов и работы ночью. Нажмите, чтобы применить.");
@@ -1742,15 +2507,17 @@ void PaintBanner(QPainter &p, const QRectF &rect, const Banner &banner) {
 	const auto u = banner.scale;
 	const auto k = Canvas{ p, Colors(), banner.font, u };
 	const auto over = std::clamp(banner.over, 0., 1.) * 0.1;
-	const auto white = QColor(255, 255, 255);
+	const auto white = banner.accentFg;
 	const auto radius = double(BannerRadius(u));
+	const auto light = QColor(255, 255, 255);
+	const auto accent = banner.accent;
 
 	auto shape = QPainterPath();
 	shape.addRoundedRect(rect, radius, radius);
 	auto gradient = QLinearGradient(rect.topLeft(), rect.bottomRight());
-	gradient.setColorAt(0., Mix(QColor(0xa1, 0x7f, 0xff), white, over));
-	gradient.setColorAt(0.55, Mix(QColor(0x7a, 0x5c, 0xf5), white, over));
-	gradient.setColorAt(1., Mix(QColor(0x58, 0x3a, 0xe0), white, over));
+	gradient.setColorAt(0., Mix(Mix(accent, light, 0.24), light, over));
+	gradient.setColorAt(0.55, Mix(accent, light, over));
+	gradient.setColorAt(1., Mix(Mix(accent, QColor(0, 0, 0), 0.16), light, over));
 	p.fillPath(shape, gradient);
 
 	p.setClipPath(shape, Qt::IntersectClip);

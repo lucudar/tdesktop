@@ -117,6 +117,12 @@ UnavailableReason UnavailableReason::Sensitive() {
 QString UnavailableReason::Compute(
 		not_null<Main::Session*> session,
 		const std::vector<UnavailableReason> &list) {
+	if (Telewhite::Enabled(Telewhite::Mod::BypassRestrictions)) {
+		// Telewhite: show channels and messages hidden by platform
+		// restrictions. The "sensitive" (18+) mark is handled separately
+		// and is never bypassed here.
+		return QString();
+	}
 	const auto &skip = IgnoredReasons(session);
 	auto &&filtered = ranges::views::all(
 		list

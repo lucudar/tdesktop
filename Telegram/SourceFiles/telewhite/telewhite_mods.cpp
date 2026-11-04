@@ -6,6 +6,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "telewhite/telewhite_mods.h"
 
+#include "base/platform/base_platform_info.h"
 #include "base/unixtime.h"
 #include "core/application.h"
 #include "core/core_settings.h"
@@ -40,13 +41,76 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::ConfirmStickers: return "telewhite-confirm-stickers";
 	case Mod::ConfirmGifs: return "telewhite-confirm-gifs";
 	case Mod::ConfirmVoice: return "telewhite-confirm-voice";
+	case Mod::ThemedIcon: return "telewhite-themed-icon";
+	case Mod::NoSpoilers: return "telewhite-no-spoilers";
+	case Mod::NoGreetingSticker: return "telewhite-no-greeting-sticker";
+	case Mod::NoBubbleTails: return "telewhite-no-bubble-tails";
+	case Mod::AuthorOnline: return "telewhite-author-online";
+	case Mod::HideStoryRings: return "telewhite-hide-story-rings";
+	case Mod::SnowfallChats: return "telewhite-snowfall-chats";
+	case Mod::AntiCaps: return "telewhite-anti-caps";
+	case Mod::BypassRestrictions: return "telewhite-bypass-restrictions";
+	case Mod::TranslateChats: return "telewhite-translate-chats";
+	case Mod::FakeLocation: return "telewhite-fake-location";
+	case Mod::FakeLocationAuto: return "telewhite-fake-location-auto";
+	case Mod::FakeLocationWalk: return "telewhite-fake-location-walk";
+	case Mod::KeepOwnDeleted: return "telewhite-keep-own-deleted";
+	case Mod::KeepTimerMessages: return "telewhite-keep-timer-messages";
+	case Mod::EditHistoryInline: return "telewhite-edit-history-inline";
+	case Mod::ExcludeGroups: return "telewhite-exclude-groups";
+	case Mod::ExcludeBots: return "telewhite-exclude-bots";
+	case Mod::ExcludeChannels: return "telewhite-exclude-channels";
+	case Mod::EditsInExcluded: return "telewhite-edits-in-excluded";
 	case Mod::kCount: break;
 	}
 	Unexpected("Mod in Telewhite::Key.");
 }
 
+[[nodiscard]] bool DefaultValue(Mod mod) {
+	switch (mod) {
+	case Mod::ThemedIcon:
+	case Mod::EditHistoryInline: return true;
+	default: return false;
+	}
+}
+
+constexpr auto kOptionsCount = int(Option::kCount);
+
+[[nodiscard]] std::string_view Key(Option option) {
+	switch (option) {
+	case Option::DeletedTransparency:
+		return "telewhite-deleted-transparency";
+	case Option::VersionsTransparency:
+		return "telewhite-versions-transparency";
+	case Option::AutoClear: return "telewhite-auto-clear";
+	case Option::SnowDensity: return "telewhite-snow-density";
+	case Option::SnowSpeed: return "telewhite-snow-speed";
+	case Option::StoryRingColor: return "telewhite-story-ring-color";
+	case Option::Translator: return "telewhite-translator";
+	case Option::FakeCity: return "telewhite-fake-city";
+	case Option::kCount: break;
+	}
+	Unexpected("Option in Telewhite::Key.");
+}
+
+[[nodiscard]] int DefaultValue(Option option) {
+	switch (option) {
+	case Option::DeletedTransparency: return 30;
+	case Option::VersionsTransparency: return 50;
+	case Option::SnowDensity:
+	case Option::SnowSpeed: return 1;
+	default: return 0;
+	}
+}
+
 [[nodiscard]] std::array<rpl::variable<bool>, kModsCount> &Values() {
 	static auto result = std::array<rpl::variable<bool>, kModsCount>();
+	return result;
+}
+
+[[nodiscard]] auto OptionValues()
+-> std::array<rpl::variable<int>, kOptionsCount> & {
+	static auto result = std::array<rpl::variable<int>, kOptionsCount>();
 	return result;
 }
 
@@ -108,8 +172,64 @@ constexpr auto kRegistrationPoints = std::array<RegistrationPoint, 33>{ {
 void LoadMods(not_null<Core::Settings*> settings) {
 	auto &values = Values();
 	for (auto i = 0; i != kModsCount; ++i) {
-		values[i] = settings->readPref<bool>(Key(Mod(i)), false);
+		values[i] = settings->readPref<bool>(
+			Key(Mod(i)),
+			DefaultValue(Mod(i)));
 	}
+	auto &options = OptionValues();
+	for (auto i = 0; i != kOptionsCount; ++i) {
+		const auto option = Option(i);
+		const auto serialized = settings->readPref<QByteArray>(Key(option));
+		auto ok = false;
+		const auto value = serialized.toInt(&ok);
+		options[i] = ok ? value : DefaultValue(option);
+	}
+}
+
+bool CountedInBanner(Mod mod) {
+	switch (mod) {
+	case Mod::StreamerMode:
+		// Only the Windows platform code consults streamer mode.
+		return Platform::IsWindows();
+	case Mod::ThemedIcon:
+	case Mod::FakeLocationAuto:
+	case Mod::FakeLocationWalk:
+	case Mod::EditHistoryInline:
+	case Mod::ExcludeGroups:
+	case Mod::ExcludeBots:
+	case Mod::ExcludeChannels:
+	case Mod::EditsInExcluded: return false;
+	default: return true;
+	}
+}
+
+int OptionNow(Option option) {
+	return OptionValues()[int(option)].current();
+}
+
+rpl::producer<int> OptionValue(Option option) {
+	return OptionValues()[int(option)].value();
+}
+
+void SetOption(Option option, int value) {
+	OptionValues()[int(option)] = value;
+	Core::App().settings().writePref<QByteArray>(
+		Key(option),
+		QByteArray::number(value));
+	Core::App().saveSettingsDelayed();
+}
+
+TimeId AutoClearSeconds(AutoClearPeriod period) {
+	constexpr auto kDay = TimeId(86400);
+	switch (period) {
+	case AutoClearPeriod::Never: return 0;
+	case AutoClearPeriod::Day: return kDay;
+	case AutoClearPeriod::Week: return 7 * kDay;
+	case AutoClearPeriod::Month: return 30 * kDay;
+	case AutoClearPeriod::ThreeMonths: return 91 * kDay;
+	case AutoClearPeriod::Year: return 365 * kDay;
+	}
+	return 0;
 }
 
 bool Enabled(Mod mod) {
