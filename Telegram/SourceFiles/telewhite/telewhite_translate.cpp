@@ -80,7 +80,13 @@ void GoogleTranslateProvider::request(
 	networkRequest.setHeader(
 		QNetworkRequest::ContentTypeHeader,
 		u"application/x-www-form-urlencoded;charset=UTF-8"_q);
+	// Static Qt 6.8+ keeps the int overload out of line next to the
+	// QDnsLookup code, which needs dnsapi.lib: use the chrono one there.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+	networkRequest.setTransferTimeout(std::chrono::milliseconds(kTimeout));
+#else // Qt >= 6.7
 	networkRequest.setTransferTimeout(kTimeout);
+#endif // Qt >= 6.7
 	const auto body = "q=" + QUrl::toPercentEncoding(text);
 	const auto reply = _network.post(networkRequest, body);
 	QObject::connect(reply, &QNetworkReply::finished, [=] {

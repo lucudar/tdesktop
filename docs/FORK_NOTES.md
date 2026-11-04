@@ -477,6 +477,12 @@
         серверная функция Premium; значок `.exe` и ярлыков в цвет темы невозможен.
       - CI: порог сохранения кэша сборки поднят с 20 до 30 ГБ (19 ГБ на диске — 1,6 ГБ в
         кэше).
+      - Первая сборка (прогон 41916629840) упала на компоновке: `LNK2019` `DnsQuery_W`,
+        `DnsFree` и ещё два из `Qt6Network.lib(qdnslookup_win.cpp.obj)`. Причина —
+        `QNetworkRequest::setTransferTimeout(int)` в `telewhite_translate.cpp`: в
+        статической Qt 6.8+ это не inline-функция, она лежит в `removed_api.cpp.obj`
+        вместе с кодом `QDnsLookup`, которому нужен `dnsapi.lib`. Исправлено перегрузкой
+        `std::chrono::milliseconds` (см. «Полезные факты»).
       - Батч 19 (план): вкладка плагинов, просмотр результатов опроса без голосования,
         анонимные стикеры (если получится), перевод перед отправкой, выбор чатов/папок
         там, где ещё нет.
@@ -541,6 +547,15 @@ git merge upstream/dev
   и `-include stdafx.h`. CI собирает MSVC `/W4` с warnings-as-errors: неиспользуемые
   локальные переменные и функции ломают сборку. `-fsyntax-only` не ловит неиспользуемые
   функции — новые файлы проверять `-c -o /dev/null -Wall -Wextra`.
+- На Windows Qt статическая (6.11), а локальная проверка идёт с динамической Qt 6.5, и
+  одну ошибку компоновки так не поймать: функции, помеченные в заголовках Qt
+  `QT_<МОДУЛЬ>_INLINE_SINCE(6, x)`, в статической сборке не inline (`modulecppexports.h.in`:
+  «static builds treat everything as part of the library, so they never inline»). Их вызов
+  подтягивает `removed_api.cpp.obj` модуля со всеми его зависимостями. Так
+  `QNetworkRequest::setTransferTimeout(int)` (и такая же у `QNetworkAccessManager`) тянет
+  `QDnsLookup` и требует `dnsapi.lib`, которого в списке библиотек нет (батч 18). Брать
+  перегрузки с `std::chrono` (для Qt 6.5 — под `#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)`)
+  и перед новым вызовом сетевого API Qt проверять заголовок 6.11 на `INLINE_SINCE`.
 - Стиль кода: табы, без комментариев-комментариев очевидного, `auto` для типов,
   строки через `u"..."_q`, новые настройки — через `writePref/readPref` (не QDataStream!).
 - Требования к коммитам и стилю — в `AGENTS.md` и `REVIEW.md` в корне репозитория.
@@ -584,8 +599,14 @@ git merge upstream/dev
 - **Ошибки без входа**: логи прогонов отдаются только с правами админа (403 без токена), а
   аннотации — всем: `GET /repos/lucudar/telewhite-build/check-runs/<id задачи>/annotations`
   (id задачи — из `/actions/runs/<id>/jobs`). Шаг «Problem matcher.» превращает ошибки
-  MSVC (`файл(строка): error C…`), компоновщика (`LNK…`) и `CMake Error` в аннотации
-  (до 10 ошибок и 10 предупреждений на шаг).
+  MSVC (`файл(строка): error C…`), компоновщика (`LNK…`, в том числе
+  `библиотека.lib(файл.obj) : error LNK2019`) и `CMake Error` в аннотации (до 10 ошибок и
+  10 предупреждений на шаг). Вывод сборки пишется ещё и в `telewhite-build.log`, а после
+  неудачной сборки шаг «Build errors.» показывает до 27 строк с ошибками из него (без
+  декорированных имён `(?…@@…)`) в аннотациях «Build errors 1…9». Шаг «Source timestamps
+  for the build cache.» оставляет аннотацию «Build cache sources»: сколько файлов не
+  изменилось и список изменённых (до 50) (с 04.11.2026, коммит `00063f9f` в
+  `lucudar/telewhite-build`).
 - Ожидание: обычный батч — около 30–50 минут (клонирование, очистка диска ~9 минут, кэши,
   компиляция изменённого, компоновка `Telegram.exe`, сохранение кэша). Правка общих
   заголовков (`stdafx.h` и то, что он подключает, `history_item.h`, `data_session.h` и
