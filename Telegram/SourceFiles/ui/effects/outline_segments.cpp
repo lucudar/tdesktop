@@ -8,6 +8,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/effects/outline_segments.h"
 
 namespace Ui {
+namespace {
+
+[[nodiscard]] std::optional<std::pair<QColor, QColor>> &
+UnreadStoryOutlineOverride() {
+	static auto result = std::optional<std::pair<QColor, QColor>>();
+	return result;
+}
+
+} // namespace
 
 void PaintOutlineSegments(
 		QPainter &p,
@@ -95,10 +104,21 @@ QLinearGradient UnreadStoryOutlineGradient(
 }
 
 QLinearGradient UnreadStoryOutlineGradient(QRectF rect) {
+	if (const auto &colors = UnreadStoryOutlineOverride()) {
+		return UnreadStoryOutlineGradient(
+			std::move(rect),
+			colors->first,
+			colors->second);
+	}
 	return UnreadStoryOutlineGradient(
 		std::move(rect),
 		st::groupCallLive1->c,
 		st::groupCallMuted1->c);
+}
+
+void SetUnreadStoryOutlineOverride(
+		std::optional<std::pair<QColor, QColor>> colors) {
+	UnreadStoryOutlineOverride() = std::move(colors);
 }
 
 } // namespace Ui

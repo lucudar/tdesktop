@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "ui/text/text_utilities.h"
 #include "telewhite/telewhite_archive.h"
+#include "telewhite/telewhite_deleted.h"
 #include "telewhite/telewhite_edit_history.h"
 #include "telewhite/telewhite_mods.h"
 #include "main/main_session.h"
@@ -312,22 +313,8 @@ void EnumerateStaticMediaPhotos(
 }
 
 [[nodiscard]] bool TelewhiteKeepDeleted(not_null<HistoryItem*> item) {
-	return Telewhite::Enabled(Telewhite::Mod::SaveDeleted)
-		&& item->isRegular()
-		&& !item->isService();
-}
-
-void TelewhiteMarkDeleted(
-		not_null<Session*> owner,
-		not_null<HistoryItem*> item) {
-	if (!Telewhite::MarkDeleted(item)) {
-		return;
-	}
-	Telewhite::RememberDeleted(item);
-
-	// The message is painted faded with a trash can near the time.
-	owner->notifyItemDataChange(item);
-	owner->requestItemRepaint(item);
+	// Already kept messages (own "deleted for everyone") stay as well.
+	return Telewhite::IsMarkedDeleted(item) || Telewhite::KeepDeleted(item);
 }
 
 } // namespace
@@ -3228,11 +3215,23 @@ void Session::checkTTLs() {
 	_ttlCheckTimer.cancel();
 	const auto now = base::unixtime::now();
 	auto expired = std::vector<not_null<HistoryItem*>>();
+	auto kept = std::vector<std::pair<TimeId, not_null<HistoryItem*>>>();
 	for (const auto &[when, items] : _ttlMessages) {
 		if (when > now) {
 			break;
 		}
-		expired.insert(expired.end(), items.begin(), items.end());
+		for (const auto &item : items) {
+			if (Telewhite::KeepExpired(item)) {
+				kept.emplace_back(when, item);
+			} else {
+				expired.push_back(item);
+			}
+		}
+	}
+	for (const auto &[when, item] : kept) {
+		// Kept like a deleted one, without the auto-delete timer.
+		unregisterMessageTTL(when, item);
+		Telewhite::KeepAsDeleted(item);
 	}
 	if (!expired.empty()) {
 		notifyItemsAboutToBeDestroyed(expired);
@@ -3369,7 +3368,7 @@ void Session::processMessagesDeleted(
 		const auto i = list ? list->find(messageId.v) : Messages::iterator();
 		if (list && i != list->end()) {
 			if (TelewhiteKeepDeleted(i->second)) {
-				TelewhiteMarkDeleted(this, i->second);
+				Telewhite::KeepAsDeleted(i->second);
 				continue;
 			}
 			const auto history = i->second->history();
@@ -3398,7 +3397,7 @@ void Session::processNonChannelMessagesDeleted(const QVector<MTPint> &data) {
 	for (const auto &messageId : data) {
 		if (const auto item = nonChannelMessage(messageId.v)) {
 			if (TelewhiteKeepDeleted(item)) {
-				TelewhiteMarkDeleted(this, item);
+				Telewhite::KeepAsDeleted(item);
 				continue;
 			}
 			const auto history = item->history();

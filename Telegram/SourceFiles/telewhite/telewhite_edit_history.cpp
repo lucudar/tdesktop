@@ -6,9 +6,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "telewhite/telewhite_edit_history.h"
 
+#include "data/data_session.h"
+#include "history/history.h"
 #include "history/history_item.h"
 #include "history/history_item_components.h"
 #include "lang/lang_keys.h"
+#include "telewhite/telewhite_deleted.h"
 #include "telewhite/telewhite_mods.h"
 #include "ui/layers/generic_box.h"
 #include "ui/vertical_list.h"
@@ -66,7 +69,7 @@ void EditHistoryBox(
 } // namespace
 
 std::optional<EditVersion> EditSnapshot(not_null<HistoryItem*> item) {
-	if (!Enabled(Mod::EditHistory) || !item->isRegular()) {
+	if (!item->isRegular() || !KeepEditsIn(item->history())) {
 		return std::nullopt;
 	}
 	return CurrentVersion(item);
@@ -79,6 +82,10 @@ void RememberEdit(
 		return;
 	}
 	RememberEditVersion(item, std::move(*was));
+	if (Enabled(Mod::EditHistoryInline)) {
+		// Previous versions are shown right under the message text.
+		item->history()->owner().requestItemTextRefresh(item);
+	}
 }
 
 void AddEditHistoryAction(

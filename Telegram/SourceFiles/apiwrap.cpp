@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 
 #include "telewhite/telewhite_mods.h"
+#include "telewhite/telewhite_tweaks.h"
 #include "api/api_authorizations.h"
 #include "api/api_attached_stickers.h"
 #include "api/api_blocked_peers.h"
@@ -4809,6 +4810,7 @@ void ApiWrap::sendMessage(
 		history,
 		_session->user()).flags;
 	TextUtilities::PrepareForSending(left, prepareFlags);
+	Telewhite::ApplyAntiCaps(left);
 
 	HistoryItem *lastMessage = nullptr;
 

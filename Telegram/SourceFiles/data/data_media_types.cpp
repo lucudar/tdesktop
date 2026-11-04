@@ -82,6 +82,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/file_upload.h"
 #include "window/window_session_controller.h" // SessionController::uiShow.
 #include "apiwrap.h"
+#include "telewhite/telewhite_mods.h"
 #include "styles/style_chat.h"
 #include "styles/style_dialogs.h"
 
@@ -1078,7 +1079,7 @@ std::unique_ptr<HistoryView::Media> MediaPhoto::createView(
 		message,
 		realParent,
 		_photo,
-		_spoiler);
+		_spoiler && !Telewhite::Enabled(Telewhite::Mod::NoSpoilers));
 }
 
 MediaFile::MediaFile(
@@ -1502,14 +1503,15 @@ std::unique_ptr<HistoryView::Media> MediaFile::createView(
 				message,
 				realParent,
 				_document,
-				_spoiler);
+				(_spoiler
+					&& !Telewhite::Enabled(Telewhite::Mod::NoSpoilers)));
 		}
 	} else if (_document->isAnimation() || _document->isVideoFile()) {
 		return std::make_unique<HistoryView::Gif>(
 			message,
 			realParent,
 			_document,
-			_spoiler);
+			_spoiler && !Telewhite::Enabled(Telewhite::Mod::NoSpoilers));
 	} else if (_document->isTheme() && _document->hasThumbnail()) {
 		return std::make_unique<HistoryView::ThemeDocument>(
 			message,

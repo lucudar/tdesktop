@@ -1990,13 +1990,19 @@ PRIVATE
     telewhite/telewhite_amoled_theme.h
     telewhite/telewhite_archive.cpp
     telewhite/telewhite_archive.h
+    telewhite/telewhite_deleted.cpp
+    telewhite/telewhite_deleted.h
     telewhite/telewhite_edit_history.cpp
     telewhite/telewhite_edit_history.h
     telewhite/telewhite_ghost_read.cpp
     telewhite/telewhite_ghost_read.h
+    telewhite/telewhite_icon.cpp
+    telewhite/telewhite_icon.h
     telewhite/telewhite_light_theme.h
     telewhite/telewhite_local_pins.cpp
     telewhite/telewhite_local_pins.h
+    telewhite/telewhite_location.cpp
+    telewhite/telewhite_location.h
     telewhite/telewhite_mods.cpp
     telewhite/telewhite_mods.h
     telewhite/telewhite_mods_box.cpp
@@ -2015,6 +2021,10 @@ PRIVATE
     telewhite/telewhite_streamer_mode.h
     telewhite/telewhite_themes.cpp
     telewhite/telewhite_themes.h
+    telewhite/telewhite_translate.cpp
+    telewhite/telewhite_translate.h
+    telewhite/telewhite_tweaks.cpp
+    telewhite/telewhite_tweaks.h
     storage/details/storage_file_utilities.cpp
     storage/details/storage_file_utilities.h
     storage/details/storage_settings_scheme.cpp

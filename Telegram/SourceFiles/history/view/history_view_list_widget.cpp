@@ -100,6 +100,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_file_click_handler.h"
 #include "data/data_message_reactions.h"
 #include "data/data_peer_values.h"
+#include "telewhite/telewhite_tweaks.h"
 #include "styles/style_chat.h"
 #include "styles/style_window.h" // columnMaximalWidthLeft
 
@@ -576,6 +577,10 @@ ListWidget::ListWidget(
 	setAttribute(Qt::WA_AcceptTouchEvents);
 	setMouseTracking(true);
 	setAccessibleName(tr::lng_sr_message_list(tr::now));
+	Telewhite::SetupAuthorOnline(
+		this,
+		_session,
+		[=](not_null<PeerData*> peer) { return _userpics.contains(peer); });
 	if (const auto scroll = _delegate->listScrollArea()) {
 		scroll->lockWheelDirection();
 		scroll->setCrossAxisWheelProcess([=](
@@ -3245,6 +3250,12 @@ void ListWidget::paintUserpics(
 					view->width(),
 					st::msgPhotoSize,
 					context.paused);
+				Telewhite::PaintAuthorOnline(
+					p,
+					from,
+					st::historyPhotoLeft,
+					userpicTop,
+					st::msgPhotoSize);
 			} else if (const auto info = item->displayHiddenSenderInfo()) {
 				if (info->customUserpic.empty()) {
 					info->emptyUserpic.paintCircle(

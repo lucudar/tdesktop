@@ -211,6 +211,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "dialogs/dialogs_key.h"
 #include "calls/calls_instance.h"
 #include "telewhite/telewhite_send_confirm.h"
+#include "telewhite/telewhite_snowfall.h"
 #include "styles/style_boxes.h"
 #include "styles/style_chat.h"
 #include "styles/style_window.h"
@@ -368,6 +369,7 @@ HistoryWidget::HistoryWidget(
 , _topShadow(this) {
 	setAcceptDrops(true);
 	setVisualTabOrder(true);
+	Telewhite::SetupChatSnowfall(this, _scroll->geometryValue());
 
 	// The controls inside these are created in an order of their own - the
 	// top bar's selection buttons start with the one placed last, the bars

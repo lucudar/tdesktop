@@ -12,6 +12,12 @@ class RpWidget;
 
 namespace Telewhite {
 
+// Snow over the whole window.
 void SetupSnowfall(not_null<Ui::RpWidget*> parent);
+
+// Snow over the messages only, when the window snowfall is off.
+void SetupChatSnowfall(
+	not_null<Ui::RpWidget*> parent,
+	rpl::producer<QRect> geometry);
 
 } // namespace Telewhite

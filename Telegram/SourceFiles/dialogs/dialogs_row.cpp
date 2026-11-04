@@ -34,6 +34,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history.h"
 #include "history/history_item.h"
 #include "lang/lang_keys.h"
+#include "telewhite/telewhite_mods.h"
+#include "telewhite/telewhite_tweaks.h"
 #include "base/unixtime.h"
 #include "styles/style_dialogs.h"
 
@@ -739,7 +741,11 @@ void Row::paintUserpic(
 		? ((peer->isUser() || peer->isChannel()) ? peer : nullptr)
 		: nullptr;
 	const auto storiesFolder = peer ? nullptr : _id.folder();
-	const auto storiesHas = storiesPeer
+	const auto storiesHidden = Telewhite::Enabled(
+		Telewhite::Mod::HideStoryRings);
+	const auto storiesHas = storiesHidden
+		? false
+		: storiesPeer
 		? storiesPeer->hasActiveStories()
 		: storiesFolder
 		? (storiesFolder->storiesCount() > 0)
@@ -763,21 +769,27 @@ void Row::paintUserpic(
 	const auto storiesSource = (storiesHas && storiesPeer)
 		? storiesPeer->owner().stories().source(storiesPeer->id)
 		: nullptr;
-	const auto storiesCountReal = storiesSource
+	const auto storiesCountReal = storiesHidden
+		? 0
+		: storiesSource
 		? int(storiesSource->ids.size())
 		: storiesFolder
 		? storiesFolder->storiesCount()
 		: storiesHas
 		? 1
 		: 0;
-	const auto storiesUnreadCountReal = storiesSource
+	const auto storiesUnreadCountReal = storiesHidden
+		? 0
+		: storiesSource
 		? storiesSource->unreadCount()
 		: storiesFolder
 		? storiesFolder->storiesUnreadCount()
 		: (storiesPeer && storiesPeer->hasUnreadStories())
 		? 1
 		: 0;
-	const auto storiesHasVideoStream = storiesSource
+	const auto storiesHasVideoStream = storiesHidden
+		? 0
+		: storiesSource
 		? storiesSource->hasVideoStream
 		: (storiesPeer && storiesPeer->hasActiveVideoStream())
 		? 1
@@ -793,6 +805,7 @@ void Row::paintUserpic(
 	}
 	auto key = peer ? peer->userpicUniqueKey(userpicView()) : InMemoryKey();
 	key.first += peer ? peer->messagesTTL() : 0;
+	key.second += Telewhite::StoryRingsKey();
 	const auto frameIndex = videoUserpic ? videoUserpic->frameIndex() : -1;
 	const auto paletteVersionReal = style::PaletteVersion();
 	const auto paletteVersion = (paletteVersionReal & ((1 << 17) - 1));

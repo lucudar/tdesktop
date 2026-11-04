@@ -183,9 +183,13 @@ public:
 	[[nodiscard]] bool hasDeleted(PeerId peerId);
 	[[nodiscard]] std::vector<DeletedMessage> deleted(PeerId peerId);
 	void clearDeleted(PeerId peerId);
+	void forgetDeleted(PeerId peerId, MsgId msgId);
 
 	void rememberEditVersion(FullMsgId id, EditVersion version);
 	[[nodiscard]] std::vector<EditVersion> editVersions(FullMsgId id);
+
+	// Removes everything older than the "auto-clear" period.
+	void prune();
 
 	void flush();
 
@@ -240,7 +244,43 @@ void Archive::load() {
 		_deleted.clear();
 		_edits.clear();
 	}
+	prune();
 	cleanFiles();
+}
+
+void Archive::prune() {
+	if (!_loaded) {
+		return;
+	}
+	const auto period = AutoClearSeconds(
+		AutoClearPeriod(OptionNow(Option::AutoClear)));
+	if (!period) {
+		return;
+	}
+	const auto border = base::unixtime::now() - period;
+	auto removed = std::vector<QString>();
+	const auto wasDeleted = _deleted.size();
+	for (const auto &entry : _deleted) {
+		const auto &message = entry.message;
+		if (message.deletedAt < border && !message.file.key.isEmpty()) {
+			removed.push_back(message.file.key);
+		}
+	}
+	_deleted.erase(ranges::remove_if(_deleted, [&](const DeletedEntry &e) {
+		return (e.message.deletedAt < border);
+	}), end(_deleted));
+	const auto wasEdits = _edits.size();
+	for (auto i = begin(_edits); i != end(_edits);) {
+		if (i->second.empty() || i->second.back().date < border) {
+			i = _edits.erase(i);
+		} else {
+			++i;
+		}
+	}
+	removeFiles(std::move(removed));
+	if (_deleted.size() != wasDeleted || _edits.size() != wasEdits) {
+		changed();
+	}
 }
 
 void Archive::cleanFiles() {
@@ -270,6 +310,7 @@ void Archive::save(bool sync) {
 	if (!_dirty) {
 		return;
 	}
+	prune();
 	_dirty = false;
 	_saveTimer.cancel();
 	_session->local().writeTelewhiteData(
@@ -525,6 +566,24 @@ void Archive::clearDeleted(PeerId peerId) {
 	_deleted.erase(
 		ranges::remove(_deleted, peerId, &DeletedEntry::peerId),
 		end(_deleted));
+	removeFiles(std::move(removed));
+	if (_deleted.size() != was) {
+		changed();
+	}
+}
+
+void Archive::forgetDeleted(PeerId peerId, MsgId msgId) {
+	load();
+	auto removed = std::vector<QString>();
+	const auto was = _deleted.size();
+	_deleted.erase(ranges::remove_if(_deleted, [&](const DeletedEntry &e) {
+		if (e.peerId != peerId || e.message.msgId != msgId) {
+			return false;
+		} else if (!e.message.file.key.isEmpty()) {
+			removed.push_back(e.message.file.key);
+		}
+		return true;
+	}), end(_deleted));
 	removeFiles(std::move(removed));
 	if (_deleted.size() != was) {
 		changed();
@@ -964,6 +1023,16 @@ std::vector<DeletedMessage> Deleted(not_null<PeerData*> peer) {
 
 void ClearDeleted(not_null<PeerData*> peer) {
 	ArchiveFor(&peer->session())->clearDeleted(peer->id);
+}
+
+void ForgetDeleted(not_null<HistoryItem*> item) {
+	ArchiveFor(item)->forgetDeleted(item->history()->peer->id, item->id);
+}
+
+void PruneArchives() {
+	for (const auto &[session, archive] : AllArchives()) {
+		archive->prune();
+	}
 }
 
 void RememberEditVersion(not_null<HistoryItem*> item, EditVersion version) {

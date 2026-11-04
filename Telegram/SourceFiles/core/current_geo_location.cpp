@@ -160,6 +160,11 @@ void ResolveLocationAddressGeneric(
 	});
 }
 
+[[nodiscard]] GeoLocationOverride &CurrentOverride() {
+	static auto result = GeoLocationOverride();
+	return result;
+}
+
 } // namespace
 
 GeoLocation ResolveCurrentCountryLocation() {
@@ -188,12 +193,32 @@ GeoLocation ResolveCurrentCountryLocation() {
 
 void ResolveCurrentGeoLocation(Fn<void(GeoLocation)> callback) {
 	using namespace Platform;
+	if (const auto &override = CurrentOverride()) {
+		if (const auto fake = override(false)) {
+			crl::on_main([=, done = std::move(callback)] {
+				done(*fake);
+			});
+			return;
+		}
+	}
 	return ResolveCurrentExactLocation([done = std::move(callback)](
 			GeoLocation result) {
+		if (result.accuracy == GeoLocationAccuracy::Failed) {
+			if (const auto &override = CurrentOverride()) {
+				if (const auto fake = override(true)) {
+					done(*fake);
+					return;
+				}
+			}
+		}
 		done(result.accuracy != GeoLocationAccuracy::Failed
 			? result
 			: ResolveCurrentCountryLocation());
 	});
+}
+
+void SetCurrentGeoLocationOverride(GeoLocationOverride override) {
+	CurrentOverride() = std::move(override);
 }
 
 void ResolveLocationAddress(

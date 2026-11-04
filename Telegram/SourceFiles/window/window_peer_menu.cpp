@@ -1093,7 +1093,8 @@ void Filler::addExportChat() {
 
 void Filler::addTranslate() {
 	if (_peer->translationFlag() != PeerData::TranslationFlag::Disabled
-		|| !_peer->session().premium()
+		|| !(_peer->session().premium()
+			|| Telewhite::Enabled(Telewhite::Mod::TranslateChats))
 		|| !Core::App().settings().translateChatEnabled()) {
 		return;
 	}

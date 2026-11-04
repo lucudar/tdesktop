@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "storage/localstorage.h"
+#include "telewhite/telewhite_icon.h"
 #include "tray.h"
 #include "ui/painter.h"
 #include "ui/ui_utility.h"
@@ -110,6 +111,13 @@ bool DarkTasbarValueValid/* = false*/;
 	static auto ScaledLogoNoMargin = base::flat_map<int, QImage>();
 	static auto ScaledLogoDark = base::flat_map<int, QImage>();
 	static auto ScaledLogoLight = base::flat_map<int, QImage>();
+	static auto LogoGeneration = 0;
+	if (const auto now = Telewhite::ThemedLogoGeneration()
+		; now != LogoGeneration) {
+		LogoGeneration = now;
+		ScaledLogo.clear();
+		ScaledLogoNoMargin.clear();
+	}
 
 	const auto darkMode = IsDarkTaskbar();
 	auto &scaled = (monochrome && darkMode)

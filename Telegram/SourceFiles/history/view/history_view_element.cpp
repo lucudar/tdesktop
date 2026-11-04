@@ -48,6 +48,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_app_config.h"
 #include "main/main_session.h"
 #include "spellcheck/spellcheck_highlight_syntax.h"
+#include "telewhite/telewhite_deleted.h"
 #include "telewhite/telewhite_mods.h"
 #include "chat_helpers/stickers_emoji_pack.h"
 #include "payments/payments_reaction_process.h" // TryAddingPaidReaction.
@@ -2275,7 +2276,9 @@ void Element::validateText() {
 		if (!unavailable.isEmpty()) {
 			setTextWithLinks(tr::italic(unavailable));
 		} else {
-			setTextWithLinks(_textItem->translatedTextWithLocalEntities());
+			setTextWithLinks(Telewhite::WithEditVersions(
+				_textItem,
+				_textItem->translatedTextWithLocalEntities()));
 			richPage = _textItem->translatedRichPage();
 		}
 	}
@@ -2318,6 +2321,10 @@ void Element::setTextWithLinks(
 		if (!item->media()) {
 			checkSpecialOnlyEmoji();
 			refreshMedia(nullptr);
+		}
+		if (Telewhite::Enabled(Telewhite::Mod::NoSpoilers)
+			&& _text.hasSpoilers()) {
+			_text.setSpoilerRevealed(true, anim::type::instant);
 		}
 	}
 	InitElementTextPart(this, _text);
