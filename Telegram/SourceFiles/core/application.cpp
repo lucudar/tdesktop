@@ -104,6 +104,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/boxes/confirm_box.h"
 #include "core/cached_webview_availability.h"
 #include "telewhite/telewhite_streamer_mode.h"
+#include "telewhite/telewhite_themes.h"
 #include "test/test_agent.h"
 
 #include <QtCore/QStandardPaths>
@@ -562,6 +563,7 @@ void Application::startDomain() {
 void Application::startSettingsAndBackground() {
 	Local::rewriteSettingsIfNeeded();
 	Window::Theme::Background()->start();
+	Telewhite::ApplyDefaultTheme();
 	checkSystemDarkMode();
 	Ui::SetScreenReaderModeDisabled(
 		settings().readPref<bool>(kScreenReaderModeDisabledKey));

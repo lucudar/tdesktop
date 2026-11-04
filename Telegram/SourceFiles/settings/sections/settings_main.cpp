@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "telewhite/telewhite_mods_box.h"
 #include "telewhite/telewhite_mods_preview.h"
+#include "telewhite/telewhite_settings.h"
 #include "settings/settings_common_session.h"
 
 #include "api/api_cloud_password.h"
@@ -363,13 +364,12 @@ void Cover::refreshQrButtonGeometry(int newWidth) {
 }
 
 void BuildTelewhiteSection(SectionBuilder &builder) {
-	const auto controller = builder.controller();
+	const auto showOther = builder.showOther();
 	const auto margin = style::ConvertScale(16);
 	builder.addControl({
 		.factory = [=](not_null<Ui::VerticalLayout*> container) {
 			return Telewhite::CreateModsBanner(container, [=] {
-				controller->show(
-					Box(Telewhite::ModsBox, &controller->session()));
+				showOther(Telewhite::ModsSectionId());
 			});
 		},
 		.id = u"main/telewhite"_q,

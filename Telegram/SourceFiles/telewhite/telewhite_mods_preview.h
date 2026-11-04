@@ -67,10 +67,19 @@ struct Palette {
 [[nodiscard]] bool SceneIsTheme(Scene scene);
 
 [[nodiscard]] int CardHeight(double scale);
+[[nodiscard]] int PanelsHeight(double scale);
 
 // state: 0. - the left panel ("without mod") is current,
 //        1. - the right panel ("with mod") is current.
 void PaintCard(
+	QPainter &p,
+	const QRectF &rect,
+	Scene scene,
+	double state,
+	const Palette &palette);
+
+// Only the "without mod" / "with mod" panels, without title and hint.
+void PaintPanels(
 	QPainter &p,
 	const QRectF &rect,
 	Scene scene,
