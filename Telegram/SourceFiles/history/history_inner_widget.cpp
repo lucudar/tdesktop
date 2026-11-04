@@ -130,6 +130,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_changes.h"
 #include "dialogs/ui/dialogs_video_userpic.h"
 #include "telewhite/telewhite_edit_history.h"
+#include "telewhite/telewhite_tweaks.h"
 #include "styles/style_chat.h"
 #include "styles/style_menu_icons.h"
 
@@ -426,6 +427,10 @@ HistoryInner::HistoryInner(
 
 	setMouseTracking(true);
 	setAccessibleName(tr::lng_sr_message_list(tr::now));
+	Telewhite::SetupAuthorOnline(
+		this,
+		&_history->session(),
+		[=](not_null<PeerData*> peer) { return _userpics.contains(peer); });
 	Core::App().inAppKeyPressed(
 	) | rpl::on_next([=] {
 		registerReadMetricsActivity();
@@ -1745,6 +1750,12 @@ void HistoryInner::paintEvent(QPaintEvent *e) {
 					width(),
 					st::msgPhotoSize,
 					context.paused);
+				Telewhite::PaintAuthorOnline(
+					p,
+					from,
+					st::historyPhotoLeft,
+					userpicTop,
+					st::msgPhotoSize);
 			} else if (const auto info = item->displayHiddenSenderInfo()) {
 				if (info->customUserpic.empty()) {
 					info->emptyUserpic.paintCircle(
