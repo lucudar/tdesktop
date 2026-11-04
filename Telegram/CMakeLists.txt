@@ -2007,10 +2007,14 @@ PRIVATE
     telewhite/telewhite_peer_info.h
     telewhite/telewhite_send_confirm.cpp
     telewhite/telewhite_send_confirm.h
+    telewhite/telewhite_settings.cpp
+    telewhite/telewhite_settings.h
     telewhite/telewhite_snowfall.cpp
     telewhite/telewhite_snowfall.h
     telewhite/telewhite_streamer_mode.cpp
     telewhite/telewhite_streamer_mode.h
+    telewhite/telewhite_themes.cpp
+    telewhite/telewhite_themes.h
     storage/details/storage_file_utilities.cpp
     storage/details/storage_file_utilities.h
     storage/details/storage_settings_scheme.cpp

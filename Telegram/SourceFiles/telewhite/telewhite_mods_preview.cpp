@@ -1522,6 +1522,29 @@ void Panel(
 	}
 }
 
+void Panels(const Canvas &k, const QRectF &rect, Scene scene, double state) {
+	const auto theme = SceneIsTheme(scene);
+	const auto gap = 8. * k.s;
+	const auto width = (rect.width() - gap) / 2.;
+	const auto clamped = std::clamp(state, 0., 1.);
+	Panel(
+		k,
+		QRectF(rect.x(), rect.y(), width, rect.height()),
+		scene,
+		false,
+		theme ? U("Сейчас") : U("Без мода"),
+		theme ? 0. : (1. - clamped),
+		!theme);
+	Panel(
+		k,
+		QRectF(rect.x() + width + gap, rect.y(), width, rect.height()),
+		scene,
+		true,
+		theme ? U("После") : U("С модом"),
+		theme ? 0. : clamped,
+		!theme);
+}
+
 } // namespace
 
 QString SceneTitle(Scene scene) {
@@ -1596,6 +1619,10 @@ int CardHeight(double scale) {
 	return int(std::ceil(kCardHeight * scale));
 }
 
+int PanelsHeight(double scale) {
+	return int(std::ceil(kPanelHeight * scale));
+}
+
 void PaintCard(
 		QPainter &p,
 		const QRectF &rect,
@@ -1635,28 +1662,29 @@ void PaintCard(
 		y += 15. * u;
 	}
 
-	const auto theme = SceneIsTheme(scene);
-	const auto gap = 8. * u;
-	const auto top = rect.y() + kPanelsTop * u;
-	const auto width = (inner.width() - gap) / 2.;
-	const auto height = kPanelHeight * u;
-	const auto clamped = std::clamp(state, 0., 1.);
-	Panel(
+	Panels(
 		k,
-		QRectF(inner.x(), top, width, height),
+		QRectF(inner.x(), rect.y() + kPanelsTop * u, inner.width(), kPanelHeight * u),
 		scene,
-		false,
-		theme ? U("Сейчас") : U("Без мода"),
-		theme ? 0. : (1. - clamped),
-		!theme);
-	Panel(
-		k,
-		QRectF(inner.x() + width + gap, top, width, height),
+		state);
+	p.restore();
+}
+
+void PaintPanels(
+		QPainter &p,
+		const QRectF &rect,
+		Scene scene,
+		double state,
+		const Palette &palette) {
+	p.save();
+	p.setRenderHint(QPainter::Antialiasing, true);
+	p.setRenderHint(QPainter::TextAntialiasing, true);
+	p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+	Panels(
+		Canvas{ p, ColorsFromPalette(palette), palette.font, palette.scale },
+		rect,
 		scene,
-		true,
-		theme ? U("После") : U("С модом"),
-		theme ? 0. : clamped,
-		!theme);
+		state);
 	p.restore();
 }
 

@@ -11,17 +11,20 @@ class GenericBox;
 class RpWidget;
 } // namespace Ui
 
-namespace Main {
-class Session;
-} // namespace Main
+namespace Telewhite::Preview {
+enum class Scene;
+} // namespace Telewhite::Preview
 
 namespace Telewhite {
 
-void ModsBox(
+// "How it works" box, opened by the "?" button near the mod toggle.
+void HowItWorksBox(
 	not_null<Ui::GenericBox*> box,
-	not_null<Main::Session*> session);
+	Preview::Scene scene,
+	rpl::producer<bool> value,
+	Fn<void(bool)> set);
 
-// Bright card for the main settings, opens the mods box on click.
+// Bright card for the main settings, opens Telewhite Mods on click.
 [[nodiscard]] object_ptr<Ui::RpWidget> CreateModsBanner(
 	not_null<QWidget*> parent,
 	Fn<void()> open);
