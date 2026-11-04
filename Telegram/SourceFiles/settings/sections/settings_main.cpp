@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/sections/settings_main.h"
 
 #include "telewhite/telewhite_mods_box.h"
+#include "telewhite/telewhite_mods_preview.h"
 #include "settings/settings_common_session.h"
 
 #include "api/api_cloud_password.h"
@@ -361,6 +362,36 @@ void Cover::refreshQrButtonGeometry(int newWidth) {
 	_qrButton->moveToRight(buttonRight - inset, buttonTop, newWidth);
 }
 
+void BuildTelewhiteSection(SectionBuilder &builder) {
+	const auto controller = builder.controller();
+	const auto margin = style::ConvertScale(16);
+	builder.addControl({
+		.factory = [=](not_null<Ui::VerticalLayout*> container) {
+			return Telewhite::CreateModsBanner(container, [=] {
+				controller->show(
+					Box(Telewhite::ModsBox, &controller->session()));
+			});
+		},
+		.id = u"main/telewhite"_q,
+		.title = tr::lng_telewhite_mods_button(),
+		.margin = style::margins(margin, 0, margin, 0),
+		.highlight = {
+			.radius = Telewhite::Preview::BannerRadius(style::Scale() / 100.),
+		},
+		.keywords = {
+			u"telewhite"_q,
+			u"mods"_q,
+			u"ghost"_q,
+			QString::fromUtf8("моды"),
+			QString::fromUtf8("призрак"),
+		},
+		.searchIcon = { &st::menuIconStealth },
+	});
+	builder.addSkip();
+	builder.addDivider();
+	builder.addSkip();
+}
+
 void BuildSectionButtons(SectionBuilder &builder) {
 	const auto session = builder.session();
 	const auto controller = builder.controller();
@@ -445,16 +476,6 @@ void BuildSectionButtons(SectionBuilder &builder) {
 		.targetSection = CallsId(),
 		.icon = { &st::menuIconUnmute },
 		.keywords = { u"sessions"_q, u"calls"_q },
-	});
-
-	builder.addButton({
-		.id = u"main/telewhite"_q,
-		.title = tr::lng_telewhite_mods_button(),
-		.icon = { &st::menuIconStealth },
-		.onClick = [=] {
-			controller->show(Box(Telewhite::ModsBox, &controller->session()));
-		},
-		.keywords = { u"telewhite"_q, u"mods"_q, u"ghost"_q },
 	});
 
 	builder.addButton({
@@ -766,6 +787,7 @@ void Main::setupContent() {
 		});
 		builder.addDivider();
 		builder.addSkip();
+		BuildTelewhiteSection(builder);
 		BuildValidationSuggestions(builder);
 		BuildSectionButtons(builder);
 		builder.addSkip();
@@ -839,6 +861,7 @@ const auto kMeta = BuildHelper({
 		};
 	});
 
+	BuildTelewhiteSection(builder);
 	BuildValidationSuggestions(builder);
 	BuildSectionButtons(builder);
 
