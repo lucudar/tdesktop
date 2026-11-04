@@ -60,6 +60,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mainwidget.h"
 #include "main/main_session.h"
 #include "settings/sections/settings_premium.h"
+#include "telewhite/telewhite_deleted.h"
 #include "telewhite/telewhite_mods.h"
 #include "ui/text/text_options.h"
 #include "ui/painter.h"
@@ -592,7 +593,7 @@ bool TelewhiteDeletedPass = false;
 
 	if (!image.isNull()) {
 		p.save();
-		p.setOpacity(p.opacity() * 0.72);
+		p.setOpacity(p.opacity() * Telewhite::DeletedOpacity());
 		p.drawImage(area.topLeft(), image);
 		p.restore();
 	}
@@ -3190,7 +3191,9 @@ void Message::paintText(
 		.blockquote = context.quoteCache(
 			contentColorCollectible(),
 			contentColorIndex()),
-		.colors = context.st->highlightColors(),
+		.colors = Telewhite::WithVersionsColor(
+			context.st->highlightColors(),
+			stm->historyTextFg->c),
 		.spoiler = Ui::Text::DefaultSpoilerCache(),
 		.now = context.now,
 		.pausedEmoji = context.paused || On(PowerSaving::kEmojiChat),
@@ -3270,7 +3273,9 @@ void Message::paintRichText(
 			contentColorIndex()),
 		.thinking = &rich->thinkingPaintCache,
 		.pathShiftGradient = delegate()->elementPathShiftGradient().get(),
-		.colors = context.st->highlightColors(),
+		.colors = Telewhite::WithVersionsColor(
+			context.st->highlightColors(),
+			stm->historyTextFg->c),
 		.st = &stm->richPageStyle,
 		.repaint = [weak = base::make_weak(const_cast<Message*>(this))] {
 			if (const auto owner = weak.get()) {
@@ -6695,7 +6700,8 @@ Ui::BubbleRounding Message::countMessageRounding() const {
 		|| (rich && richMediaAtBottom())
 		|| (keyboard != nullptr)
 		|| item->isFakeAboutView()
-		|| isCommentsRootView();
+		|| isCommentsRootView()
+		|| Telewhite::Enabled(Telewhite::Mod::NoBubbleTails);
 	const auto right = hasRightLayout();
 	using Corner = Ui::BubbleCornerRounding;
 	return Ui::BubbleRounding{
