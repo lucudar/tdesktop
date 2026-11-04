@@ -320,21 +320,14 @@ void EnumerateStaticMediaPhotos(
 void TelewhiteMarkDeleted(
 		not_null<Session*> owner,
 		not_null<HistoryItem*> item) {
-	static auto marked = base::flat_set<std::pair<uint64, FullMsgId>>();
-	const auto key = std::pair(owner->session().uniqueId(), item->fullId());
-	if (!marked.emplace(key).second) {
+	if (!Telewhite::MarkDeleted(item)) {
 		return;
 	}
 	Telewhite::RememberDeleted(item);
-	auto text = item->originalText();
-	if (!text.text.isEmpty()) {
-		text.append(u"\n\n"_q);
-	}
-	text.append(Ui::Text::Italic(
-		tr::lng_telewhite_mods_deleted_mark(tr::now)));
-	item->setText(std::move(text));
-	owner->requestItemTextRefresh(item);
-	owner->requestItemResize(item);
+
+	// The message is painted faded with a trash can near the time.
+	owner->notifyItemDataChange(item);
+	owner->requestItemRepaint(item);
 }
 
 } // namespace

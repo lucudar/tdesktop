@@ -28,6 +28,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "chat_helpers/emoji_interactions.h"
 #include "core/click_handler_types.h"
 #include "main/main_session.h"
+#include "telewhite/telewhite_mods.h"
+#include "telewhite/telewhite_mods_preview.h"
 #include "lottie/lottie_icon.h"
 #include "data/data_channel.h"
 #include "data/data_session.h"
@@ -81,6 +83,11 @@ namespace {
 		langDayOfMonthShort(edited.date()),
 		lt_time,
 		time);
+}
+
+// Space for the small trash can of messages kept by "Save deleted".
+[[nodiscard]] int TelewhiteTrashWidth() {
+	return style::ConvertScale(13);
 }
 
 } // namespace
@@ -152,6 +159,7 @@ int BottomInfo::firstLineWidth() const {
 
 bool BottomInfo::isWide() const {
 	return (_data.flags & Data::Flag::Edited)
+		|| (_data.flags & Data::Flag::TelewhiteDeleted)
 		|| _data.scheduleRepeatPeriod
 		|| !_data.author.isEmpty()
 		|| !_views.isEmpty()
@@ -174,10 +182,14 @@ TextState BottomInfo::textState(
 	if (_data.flags & (Data::Flag::OutLayout | Data::Flag::Sending)) {
 		withTicksWidth += st::historySendStateSpace;
 	}
+	const auto trashWidth = (_data.flags & Data::Flag::TelewhiteDeleted)
+		? TelewhiteTrashWidth()
+		: 0;
 	if (!_views.isEmpty()) {
 		const auto viewsWidth = _views.maxWidth();
 		const auto right = width()
 			- withTicksWidth
+			- trashWidth
 			- ((_data.flags & Data::Flag::Pinned) ? st::historyPinWidth : 0)
 			- st::historyViewsSpace
 			- st::historyViewsWidth
@@ -204,9 +216,9 @@ TextState BottomInfo::textState(
 		}
 	}
 	const auto inTime = QRect(
-		width() - withTicksWidth,
+		width() - withTicksWidth - trashWidth,
 		0,
-		withTicksWidth,
+		withTicksWidth + trashWidth,
 		st::msgDateFont->height
 	).contains(position);
 	if (inTime) {
@@ -271,6 +283,7 @@ void BottomInfo::paint(
 		const PaintContext &context) const {
 	const auto st = context.st;
 	const auto stm = context.messageStyle();
+	const auto dateColor = p.pen().color();
 
 	auto right = position.x() + width();
 	const auto firstLineBottom = position.y() + st::msgDateFont->height;
@@ -301,6 +314,26 @@ void BottomInfo::paint(
 		position.y(),
 		authorEditedWidth,
 		outerWidth);
+
+	if (_data.flags & Data::Flag::TelewhiteDeleted) {
+		const auto trashWidth = TelewhiteTrashWidth();
+		right -= trashWidth;
+		const auto unit = style::Scale() / 100.;
+		const auto iconWidth = 8. * unit;
+		const auto iconHeight = 9.5 * unit;
+		const auto iconLeft = right + trashWidth - 3. * unit - iconWidth;
+		Telewhite::Preview::PaintTrashIcon(
+			p,
+			QRectF(
+				(style::RightToLeft()
+					? (outerWidth - iconLeft - iconWidth)
+					: iconLeft),
+				position.y() + st::msgDateFont->ascent - iconHeight,
+				iconWidth,
+				iconHeight),
+			dateColor,
+			std::max(1., 1.1 * unit));
+	}
 
 	if (_data.flags & Data::Flag::Silent) {
 		const auto &icon = inverted
@@ -594,6 +627,9 @@ QSize BottomInfo::countOptimalSize() {
 		width += st::historySendStateSpace;
 	}
 	width += _authorEditedDate.maxWidth();
+	if (_data.flags & Data::Flag::TelewhiteDeleted) {
+		width += TelewhiteTrashWidth();
+	}
 	if (!_views.isEmpty()) {
 		width += st::historyViewsSpace
 			+ _views.maxWidth()
@@ -700,6 +736,9 @@ BottomInfo::Data BottomInfoDataFromMessage(not_null<Message*> message) {
 	}
 	if (IsAnchoredEphemeral(item)) {
 		result.flags |= Flag::Updated;
+	}
+	if (Telewhite::IsMarkedDeleted(item)) {
+		result.flags |= Flag::TelewhiteDeleted;
 	}
 	if (const auto views = item->Get<HistoryMessageViews>()) {
 		if (views->views.count >= 0) {

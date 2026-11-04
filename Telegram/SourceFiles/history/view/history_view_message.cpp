@@ -60,6 +60,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mainwidget.h"
 #include "main/main_session.h"
 #include "settings/sections/settings_premium.h"
+#include "telewhite/telewhite_mods.h"
 #include "ui/text/text_options.h"
 #include "ui/painter.h"
 #include "window/window_session_controller.h"
@@ -525,6 +526,77 @@ struct BadgePillGeometry {
 		.width = std::max(contentWidth, height),
 		.height = height,
 	};
+}
+
+bool TelewhiteDeletedPass = false;
+
+// Messages kept by "Save deleted" mod are painted faded and a bit darker.
+[[nodiscard]] bool TelewhitePaintDeleted(
+		not_null<const Message*> view,
+		Painter &p,
+		const PaintContext &context,
+		int headerHeight) {
+	if (TelewhiteDeletedPass
+		|| (context.skipDrawingParts
+			!= PaintContext::SkipDrawingParts::None)
+		|| view->isHidden()
+		|| !Telewhite::IsMarkedDeleted(view->data())) {
+		return false;
+	}
+	const auto width = view->width();
+	const auto height = view->height() - headerHeight;
+	if (width <= 0 || height <= 0) {
+		return false;
+	}
+	const auto area = context.clip.intersected(
+		QRect(0, headerHeight, width, height));
+	TelewhiteDeletedPass = true;
+	if (headerHeight > 0) {
+		// Unread bar and service header above the bubble stay as is.
+		const auto header = QRect(0, 0, width, headerHeight);
+		auto headerContext = context;
+		headerContext.reactionInfo = nullptr;
+		headerContext.clip = context.clip.intersected(header);
+		p.save();
+		p.setClipRect(header, Qt::IntersectClip);
+		view->draw(p, headerContext);
+		p.restore();
+	}
+	auto image = QImage();
+	if (!area.isEmpty()) {
+		// Only the dirty part of the bubble is rendered to keep it cheap.
+		const auto ratio = style::DevicePixelRatio();
+		image = QImage(
+			area.size() * ratio,
+			QImage::Format_ARGB32_Premultiplied);
+		image.setDevicePixelRatio(ratio);
+		image.fill(Qt::transparent);
+
+		auto bodyContext = context;
+		bodyContext.clip = area;
+		auto q = Painter(&image);
+		q.setInactive(p.inactive());
+		q.setFont(p.font());
+		q.setPen(p.pen());
+		q.translate(-area.topLeft());
+		view->draw(q, bodyContext);
+		q.resetTransform();
+		const auto dark = (context.messageStyle()->msgBg->c.lightnessF()
+			< 0.5);
+		q.setCompositionMode(QPainter::CompositionMode_SourceAtop);
+		q.fillRect(
+			QRect(QPoint(), area.size()),
+			QColor(0, 0, 0, dark ? 56 : 20));
+	}
+	TelewhiteDeletedPass = false;
+
+	if (!image.isNull()) {
+		p.save();
+		p.setOpacity(p.opacity() * 0.72);
+		p.drawImage(area.topLeft(), image);
+		p.restore();
+	}
+	return true;
 }
 
 } // namespace
@@ -1790,6 +1862,15 @@ int Message::marginBottom() const {
 void Message::draw(Painter &p, const PaintContext &context) const {
 	auto g = countGeometry();
 	if (g.width() < 1) {
+		return;
+	}
+	if (TelewhitePaintDeleted(
+			this,
+			p,
+			context,
+			((Has<UnreadBar>() || Has<ServicePreMessage>())
+				? g.top()
+				: 0))) {
 		return;
 	}
 
