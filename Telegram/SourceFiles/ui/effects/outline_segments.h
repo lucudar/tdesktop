@@ -34,4 +34,8 @@ void PaintOutlineSegments(
 	const QColor &c2);
 [[nodiscard]] QLinearGradient UnreadStoryOutlineGradient(QRectF rect = {});
 
+// Telewhite: custom colors of the unread stories outline.
+void SetUnreadStoryOutlineOverride(
+	std::optional<std::pair<QColor, QColor>> colors);
+
 } // namespace Ui

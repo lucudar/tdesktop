@@ -53,6 +53,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/painter.h"
 #include "ui/top_background_gradient.h"
 #include "window/window_session_controller.h"
+#include "telewhite/telewhite_mods.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h" // GroupCallUserpics
 #include "styles/style_credits.h"
@@ -272,8 +273,12 @@ auto GenerateChatIntro(
 		const auto title = data.customPhrases()
 			? data.title
 			: tr::lng_chat_intro_default_title(tr::now);
+		const auto hideSticker = !data.sticker
+			&& Telewhite::Enabled(Telewhite::Mod::NoGreetingSticker);
 		const auto description = data.customPhrases()
 			? data.description
+			: hideSticker
+			? tr::lng_telewhite_chat_intro_message(tr::now)
 			: tr::lng_chat_intro_default_message(tr::now);
 		pushText(tr::bold(title), st::chatIntroTitleMargin);
 		pushText({ description }, title.isEmpty()
@@ -302,6 +307,9 @@ auto GenerateChatIntro(
 				.link = std::make_shared<LambdaClickHandler>(send),
 			};
 		};
+		if (hideSticker) {
+			return;
+		}
 		push(std::make_unique<StickerInBubblePart>(
 			parent,
 			replacing,

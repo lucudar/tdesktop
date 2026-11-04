@@ -33,8 +33,56 @@ enum class Mod {
 	ConfirmStickers,
 	ConfirmGifs,
 	ConfirmVoice,
+	ThemedIcon,
+	NoSpoilers,
+	NoGreetingSticker,
+	NoBubbleTails,
+	AuthorOnline,
+	HideStoryRings,
+	SnowfallChats,
+	AntiCaps,
+	BypassRestrictions,
+	TranslateChats,
+	FakeLocation,
+	FakeLocationAuto,
+	FakeLocationWalk,
+	KeepOwnDeleted,
+	KeepTimerMessages,
+	EditHistoryInline,
+	ExcludeGroups,
+	ExcludeBots,
+	ExcludeChannels,
+	EditsInExcluded,
 
 	kCount,
+};
+
+// Numeric settings of the mods.
+enum class Option {
+	DeletedTransparency, // Percents, 0 - 90.
+	VersionsTransparency, // Percents, 0 - 90.
+	AutoClear, // AutoClearPeriod.
+	SnowDensity, // 0 - 3.
+	SnowSpeed, // 0 - 3.
+	StoryRingColor, // Index in StoryRingColors(), 0 - default.
+	Translator, // TranslatorKind.
+	FakeCity, // Index in the cities list, -1 - custom point.
+
+	kCount,
+};
+
+enum class AutoClearPeriod {
+	Never,
+	Day,
+	Week,
+	Month,
+	ThreeMonths,
+	Year,
+};
+
+enum class TranslatorKind {
+	Telegram,
+	Google,
 };
 
 void LoadMods(not_null<Core::Settings*> settings);
@@ -42,6 +90,15 @@ void LoadMods(not_null<Core::Settings*> settings);
 [[nodiscard]] bool Enabled(Mod mod);
 [[nodiscard]] rpl::producer<bool> EnabledValue(Mod mod);
 void SetEnabled(Mod mod, bool enabled);
+
+// Sub-options are not counted as separate mods in the settings banner.
+[[nodiscard]] bool CountedInBanner(Mod mod);
+
+[[nodiscard]] int OptionNow(Option option);
+[[nodiscard]] rpl::producer<int> OptionValue(Option option);
+void SetOption(Option option, int value);
+
+[[nodiscard]] TimeId AutoClearSeconds(AutoClearPeriod period);
 
 // Ghost mode keeps "listened" of voice / round messages local,
 // but self-destructing media are still reported as opened.

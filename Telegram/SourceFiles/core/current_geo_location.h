@@ -51,6 +51,11 @@ struct GeoAddress {
 [[nodiscard]] GeoLocation ResolveCurrentCountryLocation();
 void ResolveCurrentGeoLocation(Fn<void(GeoLocation)> callback);
 
+// Telewhite: replaces the current location. Called with (false) before
+// asking the system and with (true) if the system request has failed.
+using GeoLocationOverride = Fn<std::optional<GeoLocation>(bool failed)>;
+void SetCurrentGeoLocationOverride(GeoLocationOverride override);
+
 void ResolveLocationAddress(
 	const GeoLocation &location,
 	const QString &language,

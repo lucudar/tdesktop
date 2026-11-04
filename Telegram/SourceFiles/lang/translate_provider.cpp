@@ -17,6 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/translate_mtproto_provider.h"
 #include "lang/translate_url_provider.h"
 #include "platform/platform_translate_provider.h"
+#include "telewhite/telewhite_translate.h"
 
 namespace {
 
@@ -37,6 +38,9 @@ std::unique_ptr<TranslateProvider> CreateTranslateProvider(
 	if (!urlTemplate.isEmpty()
 		&& urlTemplate.contains(u"%q"_q)) {
 		return CreateUrlTranslateProvider(urlTemplate);
+	}
+	if (Telewhite::UseGoogleTranslate(session)) {
+		return Telewhite::CreateGoogleTranslateProvider();
 	}
 	if (Core::App().settings().usePlatformTranslation()
 		&& Platform::IsTranslateProviderAvailable()) {

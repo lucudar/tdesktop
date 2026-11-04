@@ -46,6 +46,10 @@ void RememberDeleted(not_null<HistoryItem*> item);
 [[nodiscard]] bool HasDeleted(not_null<PeerData*> peer);
 [[nodiscard]] std::vector<DeletedMessage> Deleted(not_null<PeerData*> peer);
 void ClearDeleted(not_null<PeerData*> peer);
+void ForgetDeleted(not_null<HistoryItem*> item);
+
+// Applies the "auto-clear" period to the loaded archives.
+void PruneArchives();
 
 void RememberEditVersion(not_null<HistoryItem*> item, EditVersion version);
 [[nodiscard]] std::vector<EditVersion> EditVersions(

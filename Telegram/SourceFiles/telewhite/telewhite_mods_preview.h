@@ -39,6 +39,20 @@ enum class Scene {
 	ShowSeconds,
 	RegistrationDate,
 	Snowfall,
+	KeepOwnDeleted,
+	KeepTimerMessages,
+	EditHistoryInline,
+	AntiCaps,
+	NoSpoilers,
+	NoGreetingSticker,
+	BypassRestrictions,
+	TranslateChats,
+	FakeLocation,
+	ThemedIcon,
+	NoBubbleTails,
+	AuthorOnline,
+	HideStoryRings,
+	SnowfallChats,
 	ThemeLight,
 	ThemeDark,
 	ThemeAmoled,
@@ -90,6 +104,8 @@ struct Banner {
 	QString title;
 	QString about;
 	QFont font;
+	QColor accent = QColor(0x7a, 0x5c, 0xf5);
+	QColor accentFg = QColor(0xff, 0xff, 0xff);
 	double scale = 1.;
 	double over = 0.;
 };
@@ -97,7 +113,7 @@ struct Banner {
 [[nodiscard]] int BannerHeight(double scale);
 [[nodiscard]] int BannerRadius(double scale);
 
-// Bright gradient card that opens Telewhite Mods from the settings.
+// Gradient card in the theme accent color, opens Telewhite Mods.
 void PaintBanner(QPainter &p, const QRectF &rect, const Banner &banner);
 
 void PaintGhostIcon(QPainter &p, const QRectF &rect, const QColor &color);

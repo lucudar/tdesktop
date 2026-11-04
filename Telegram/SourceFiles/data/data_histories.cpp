@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_histories.h"
 
+#include "telewhite/telewhite_archive.h"
+#include "telewhite/telewhite_deleted.h"
 #include "telewhite/telewhite_mods.h"
 #include "api/api_text_entities.h"
 #include "data/business/data_shortcut_messages.h"
@@ -983,6 +985,7 @@ void Histories::deleteMessagesByDates(
 
 void Histories::deleteMessages(const MessageIdsList &ids, bool revoke) {
 	auto remove = std::vector<not_null<HistoryItem*>>();
+	auto keep = std::vector<not_null<HistoryItem*>>();
 	remove.reserve(ids.size());
 	base::flat_map<not_null<History*>, QVector<MTPint>> idsByPeer;
 	base::flat_map<not_null<PeerData*>, QVector<MTPint>> scheduledIdsByPeer;
@@ -1026,6 +1029,16 @@ void Histories::deleteMessages(const MessageIdsList &ids, bool revoke) {
 			} else if (item->isEphemeral()) {
 				_owner->session().ephemeralMessages().deleteMessage(item);
 				continue;
+			} else if (Telewhite::IsMarkedDeleted(item)) {
+				// Kept by Telewhite, it is already deleted on the server.
+				Telewhite::ForgetDeleted(item);
+				remove.push_back(item);
+				continue;
+			} else if (Telewhite::KeepOwnOnDelete(item, revoke)) {
+				// Deleted for everyone, but stays here until deleted again.
+				keep.push_back(item);
+				idsByPeer[history].push_back(MTP_int(itemId.msg));
+				continue;
 			}
 			remove.push_back(item);
 			if (item->isRegular()) {
@@ -1056,6 +1069,9 @@ void Histories::deleteMessages(const MessageIdsList &ids, bool revoke) {
 	}
 	for (const auto &document : savedMusic) {
 		document->owner().savedMusic().remove(document);
+	}
+	for (const auto &item : keep) {
+		Telewhite::KeepAsDeleted(item);
 	}
 
 	if (!remove.empty()) {

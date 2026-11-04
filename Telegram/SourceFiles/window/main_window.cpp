@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "window/main_window.h"
 
+#include "telewhite/telewhite_icon.h"
 #include "telewhite/telewhite_snowfall.h"
 #include "api/api_updates.h"
 #include "storage/localstorage.h"
@@ -143,11 +144,17 @@ const char kOptionDisableTouchbar[] = "touchbar-disabled";
 
 const QImage &Logo() {
 	static const auto result = QImage(u":/gui/art/logo_256.png"_q);
+	if (const auto themed = Telewhite::ThemedLogo(false)) {
+		return *themed;
+	}
 	return result;
 }
 
 const QImage &LogoNoMargin() {
 	static const auto result = QImage(u":/gui/art/logo_256_no_margin.png"_q);
+	if (const auto themed = Telewhite::ThemedLogo(true)) {
+		return *themed;
+	}
 	return result;
 }
 

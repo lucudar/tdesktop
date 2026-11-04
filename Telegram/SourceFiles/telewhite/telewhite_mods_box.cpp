@@ -6,7 +6,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "telewhite/telewhite_mods_box.h"
 
-#include "base/platform/base_platform_info.h"
 #include "lang/lang_keys.h"
 #include "telewhite/telewhite_mods.h"
 #include "telewhite/telewhite_mods_preview.h"
@@ -141,8 +140,7 @@ ModsBanner::ModsBanner(QWidget *parent)
 	auto values = std::vector<rpl::producer<int>>();
 	for (auto i = 0; i != int(Mod::kCount); ++i) {
 		const auto mod = Mod(i);
-		// Only the Windows platform code consults streamer mode.
-		if (mod != Mod::StreamerMode || Platform::IsWindows()) {
+		if (CountedInBanner(mod)) {
 			values.push_back(EnabledValue(mod) | rpl::map([](bool value) {
 				return value ? 1 : 0;
 			}));
@@ -178,14 +176,17 @@ int ModsBanner::resizeGetHeight(int) {
 
 void ModsBanner::paintEvent(QPaintEvent *) {
 	auto p = QPainter(this);
+	const auto fg = st::windowFgActive->c;
 	Preview::PaintBanner(p, QRectF(rect()), {
 		.title = tr::lng_telewhite_mods_button(tr::now),
 		.about = _about,
 		.font = st::normalFont->f,
+		.accent = st::windowBgActive->c,
+		.accentFg = fg,
 		.scale = CurrentScale(),
 		.over = _overAnimation.value(_over ? 1. : 0.),
 	});
-	const auto ripple = QColor(255, 255, 255, 56);
+	const auto ripple = QColor(fg.red(), fg.green(), fg.blue(), 56);
 	paintRipple(p, 0, 0, &ripple);
 }
 
