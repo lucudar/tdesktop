@@ -10,8 +10,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "data/data_media_types.h"
+#include "history/history.h"
 #include "history/history_item.h"
 #include "lang/lang_keys.h"
+#include "main/main_session.h"
 
 namespace Telewhite {
 namespace {
@@ -46,6 +48,17 @@ constexpr auto kModsCount = int(Mod::kCount);
 [[nodiscard]] std::array<rpl::variable<bool>, kModsCount> &Values() {
 	static auto result = std::array<rpl::variable<bool>, kModsCount>();
 	return result;
+}
+
+using DeletedKey = std::pair<uint64, FullMsgId>;
+
+[[nodiscard]] base::flat_map<DeletedKey, TimeId> &MarkedDeletedMap() {
+	static auto result = base::flat_map<DeletedKey, TimeId>();
+	return result;
+}
+
+[[nodiscard]] DeletedKey DeletedKeyOf(not_null<const HistoryItem*> item) {
+	return { item->history()->session().uniqueId(), item->fullId() };
 }
 
 struct RegistrationPoint {
@@ -152,6 +165,26 @@ QString RegistrationDateText(uint64 userId) {
 
 QString FormatExactDateTime(TimeId date) {
 	return base::unixtime::parse(date).toString(u"dd.MM.yyyy HH:mm:ss"_q);
+}
+
+bool MarkDeleted(not_null<const HistoryItem*> item) {
+	return MarkedDeletedMap().emplace(
+		DeletedKeyOf(item),
+		base::unixtime::now()).second;
+}
+
+bool IsMarkedDeleted(not_null<const HistoryItem*> item) {
+	const auto &map = MarkedDeletedMap();
+	return !map.empty() && map.contains(DeletedKeyOf(item));
+}
+
+TimeId MarkedDeletedAt(not_null<const HistoryItem*> item) {
+	const auto &map = MarkedDeletedMap();
+	if (map.empty()) {
+		return 0;
+	}
+	const auto i = map.find(DeletedKeyOf(item));
+	return (i != map.end()) ? i->second : 0;
 }
 
 bool SkipContentsRead(not_null<HistoryItem*> item) {

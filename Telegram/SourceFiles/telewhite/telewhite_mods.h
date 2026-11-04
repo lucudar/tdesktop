@@ -47,6 +47,12 @@ void SetEnabled(Mod mod, bool enabled);
 // but self-destructing media are still reported as opened.
 [[nodiscard]] bool SkipContentsRead(not_null<HistoryItem*> item);
 
+// Messages deleted by the other side, but kept by "Save deleted" mod.
+// They are painted faded with a small trash can near the time.
+bool MarkDeleted(not_null<const HistoryItem*> item);
+[[nodiscard]] bool IsMarkedDeleted(not_null<const HistoryItem*> item);
+[[nodiscard]] TimeId MarkedDeletedAt(not_null<const HistoryItem*> item);
+
 [[nodiscard]] QDate EstimateRegistrationDate(uint64 userId);
 [[nodiscard]] QString RegistrationDateText(uint64 userId);
 [[nodiscard]] QString FormatExactDateTime(TimeId date);

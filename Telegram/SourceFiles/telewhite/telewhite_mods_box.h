@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace Ui {
 class GenericBox;
+class RpWidget;
 } // namespace Ui
 
 namespace Main {
@@ -19,5 +20,10 @@ namespace Telewhite {
 void ModsBox(
 	not_null<Ui::GenericBox*> box,
 	not_null<Main::Session*> session);
+
+// Bright card for the main settings, opens the mods box on click.
+[[nodiscard]] object_ptr<Ui::RpWidget> CreateModsBanner(
+	not_null<QWidget*> parent,
+	Fn<void()> open);
 
 } // namespace Telewhite

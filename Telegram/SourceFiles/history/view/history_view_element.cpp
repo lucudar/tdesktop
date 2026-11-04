@@ -48,6 +48,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_app_config.h"
 #include "main/main_session.h"
 #include "spellcheck/spellcheck_highlight_syntax.h"
+#include "telewhite/telewhite_mods.h"
 #include "chat_helpers/stickers_emoji_pack.h"
 #include "payments/payments_reaction_process.h" // TryAddingPaidReaction.
 #include "window/themes/window_theme.h" // IsNightMode.
@@ -718,6 +719,12 @@ QString DateTooltipText(not_null<Element*> view) {
 			tr::now,
 			lt_date,
 			locale.toString(base::unixtime::parse(editedDate), format));
+	}
+	if (const auto deletedDate = Telewhite::MarkedDeletedAt(item)) {
+		dateText += '\n' + tr::lng_telewhite_deleted_date(
+			tr::now,
+			lt_date,
+			locale.toString(base::unixtime::parse(deletedDate), format));
 	}
 	if (const auto forwarded = item->Get<HistoryMessageForwarded>()) {
 		if (!forwarded->story && forwarded->psaType.isEmpty()) {
