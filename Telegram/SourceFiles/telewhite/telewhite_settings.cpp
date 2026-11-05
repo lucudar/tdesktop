@@ -25,6 +25,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "telewhite/telewhite_mods.h"
 #include "telewhite/telewhite_mods_box.h"
 #include "telewhite/telewhite_mods_preview.h"
+#include "telewhite/telewhite_now_playing.h"
 #include "telewhite/telewhite_themes.h"
 #include "telewhite/telewhite_tweaks.h"
 #include "ui/boxes/choose_font_box.h"
@@ -68,6 +69,7 @@ enum class Group {
 	Premium,
 	Clean,
 	Profile,
+	Music,
 	Location,
 	Streamer,
 	Design,
@@ -118,6 +120,7 @@ rpl::event_stream<> ExcludedFoldersChanges;
 	case Group::Premium: return &tr::lng_telewhite_mods_premium;
 	case Group::Clean: return &tr::lng_telewhite_mods_clean;
 	case Group::Profile: return &tr::lng_telewhite_mods_profile;
+	case Group::Music: return &tr::lng_telewhite_mods_music;
 	case Group::Location: return &tr::lng_telewhite_mods_location;
 	case Group::Streamer: return &tr::lng_telewhite_mods_streamer;
 	case Group::Design: return &tr::lng_telewhite_mods_design;
@@ -135,6 +138,7 @@ rpl::event_stream<> ExcludedFoldersChanges;
 	case Group::Premium: return &st::menuIconPremium;
 	case Group::Clean: return &st::menuIconCaptionHide;
 	case Group::Profile: return &st::menuIconTimer;
+	case Group::Music: return &st::menuIconMusic;
 	case Group::Location: return &st::menuIconAddress;
 	case Group::Streamer: return &st::menuIconStartStream;
 	case Group::Design: return &st::menuIconPalette;
@@ -152,6 +156,7 @@ rpl::event_stream<> ExcludedFoldersChanges;
 	case Group::Premium: return tr::lng_telewhite_mods_premium_about();
 	case Group::Clean: return tr::lng_telewhite_mods_hide_phone_about();
 	case Group::Profile: return tr::lng_telewhite_mods_profile_about();
+	case Group::Music: return tr::lng_telewhite_mods_music_about();
 	case Group::Location: return tr::lng_telewhite_mods_location_about();
 	case Group::Streamer: return tr::lng_telewhite_mods_streamer_about();
 	case Group::Design: return tr::lng_telewhite_mods_themes_about();
@@ -427,6 +432,55 @@ rpl::event_stream<> ExcludedFoldersChanges;
 			Scene::RegistrationDate,
 			{ u"регистрация"_q, u"дата"_q, u"создан"_q });
 		break;
+	case Group::Music: {
+		mod(
+			u"music/now-playing"_q,
+			&tr::lng_telewhite_mods_now_playing,
+			Mod::NowPlaying,
+			Scene::NowPlaying,
+			{
+				u"музыка"_q,
+				u"слушаю"_q,
+				u"о себе"_q,
+				u"spotify"_q,
+				u"music"_q,
+			});
+		const auto source = [&](
+				const QString &id,
+				not_null<const tr::phrase<>*> title,
+				Mod which,
+				QStringList keywords) {
+			mod(
+				u"music/"_q + id,
+				title,
+				which,
+				Scene::NowPlaying,
+				std::move(keywords));
+			result.back().sub = true;
+			result.back().help = false;
+			result.back().shown = EnabledValue(Mod::NowPlaying);
+		};
+		source(
+			u"spotify"_q,
+			&tr::lng_telewhite_mods_now_playing_spotify,
+			Mod::NowPlayingSpotify,
+			{ u"spotify"_q, u"спотифай"_q });
+		source(
+			u"yandex"_q,
+			&tr::lng_telewhite_mods_now_playing_yandex,
+			Mod::NowPlayingYandex,
+			{ u"яндекс"_q, u"yandex"_q });
+		source(
+			u"vk"_q,
+			&tr::lng_telewhite_mods_now_playing_vk,
+			Mod::NowPlayingVk,
+			{ u"вк"_q, u"vk"_q, u"вконтакте"_q });
+		source(
+			u"other"_q,
+			&tr::lng_telewhite_mods_now_playing_other,
+			Mod::NowPlayingOther,
+			{ u"браузер"_q, u"плеер"_q, u"browser"_q });
+	} break;
 	case Group::Location:
 		mod(
 			u"location/fake"_q,
@@ -508,8 +562,9 @@ rpl::event_stream<> ExcludedFoldersChanges;
 }
 
 [[nodiscard]] bool GroupShown(Group group) {
-	// Only the Windows platform code consults streamer mode.
-	return (group != Group::Streamer) || Platform::IsWindows();
+	// Streamer mode and players are supported only on Windows.
+	return (group != Group::Streamer && group != Group::Music)
+		|| Platform::IsWindows();
 }
 
 // Small round "?" button near the toggle, opens the "how it works" box.
@@ -1330,6 +1385,25 @@ void BuildDesign(SectionBuilder &builder) {
 	builder.addDividerText(tr::lng_telewhite_mods_effects_about());
 }
 
+void BuildMusicExtras(SectionBuilder &builder) {
+	builder.addSkip();
+	builder.addSubsectionTitle(tr::lng_telewhite_mods_music_now());
+	builder.add([](const WidgetContext &ctx) {
+		const auto skip = st::settingsButtonNoIcon.padding.left();
+		return SectionBuilder::WidgetToAdd{
+			.widget = object_ptr<Ui::FlatLabel>(
+				ctx.container,
+				NowPlaying::StatusValue(
+				) | rpl::map(NowPlaying::StatusText),
+				st::boxLabel),
+			.margin = QMargins(skip, 0, skip, 0),
+		};
+	});
+	builder.addSkip();
+	builder.addSkip();
+	builder.addDividerText(tr::lng_telewhite_mods_music_now_about());
+}
+
 void BuildGroup(SectionBuilder &builder, Group group) {
 	if (group == Group::Design) {
 		BuildDesign(builder);
@@ -1350,6 +1424,8 @@ void BuildGroup(SectionBuilder &builder, Group group) {
 	builder.addDividerText(GroupAbout(group));
 	if (group == Group::Deleted) {
 		BuildDeletedExtras(builder);
+	} else if (group == Group::Music) {
+		BuildMusicExtras(builder);
 	}
 }
 
@@ -1364,6 +1440,7 @@ void BuildMods(SectionBuilder &builder) {
 		Group::Premium,
 		Group::Clean,
 		Group::Profile,
+		Group::Music,
 		Group::Location,
 		Group::Streamer,
 	}) {
@@ -1427,6 +1504,7 @@ const auto kChatsMeta = MakeGroupMeta<Group::Chats>();
 const auto kPremiumMeta = MakeGroupMeta<Group::Premium>();
 const auto kCleanMeta = MakeGroupMeta<Group::Clean>();
 const auto kProfileMeta = MakeGroupMeta<Group::Profile>();
+const auto kMusicMeta = MakeGroupMeta<Group::Music>();
 const auto kLocationMeta = MakeGroupMeta<Group::Location>();
 const auto kStreamerMeta = MakeGroupMeta<Group::Streamer>();
 const auto kDesignMeta = MakeGroupMeta<Group::Design>();
@@ -1441,6 +1519,7 @@ const auto kDesignMeta = MakeGroupMeta<Group::Design>();
 	case Group::Premium: return kPremiumMeta;
 	case Group::Clean: return kCleanMeta;
 	case Group::Profile: return kProfileMeta;
+	case Group::Music: return kMusicMeta;
 	case Group::Location: return kLocationMeta;
 	case Group::Streamer: return kStreamerMeta;
 	case Group::Design: return kDesignMeta;
@@ -1486,6 +1565,7 @@ Type GroupId(Group group) {
 	case Group::Premium: return GroupSection<Group::Premium>::Id();
 	case Group::Clean: return GroupSection<Group::Clean>::Id();
 	case Group::Profile: return GroupSection<Group::Profile>::Id();
+	case Group::Music: return GroupSection<Group::Music>::Id();
 	case Group::Location: return GroupSection<Group::Location>::Id();
 	case Group::Streamer: return GroupSection<Group::Streamer>::Id();
 	case Group::Design: return GroupSection<Group::Design>::Id();

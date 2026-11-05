@@ -53,6 +53,7 @@ enum class Scene {
 	AuthorOnline,
 	HideStoryRings,
 	SnowfallChats,
+	NowPlaying,
 	ThemeLight,
 	ThemeDark,
 	ThemeAmoled,
@@ -102,10 +103,12 @@ void PaintPanels(
 
 struct Banner {
 	QString title;
-	QString about;
+	QString counter;
 	QFont font;
+	QColor bg = QColor(0xff, 0xff, 0xff);
+	QColor fg = QColor(0x00, 0x00, 0x00);
+	QColor sub = QColor(0x99, 0x99, 0x99);
 	QColor accent = QColor(0x7a, 0x5c, 0xf5);
-	QColor accentFg = QColor(0xff, 0xff, 0xff);
 	double scale = 1.;
 	double over = 0.;
 };
@@ -113,7 +116,7 @@ struct Banner {
 [[nodiscard]] int BannerHeight(double scale);
 [[nodiscard]] int BannerRadius(double scale);
 
-// Gradient card in the theme accent color, opens Telewhite Mods.
+// Flat minimal row tinted by the theme accent, opens Telewhite Mods.
 void PaintBanner(QPainter &p, const QRectF &rect, const Banner &banner);
 
 void PaintGhostIcon(QPainter &p, const QRectF &rect, const QColor &color);

@@ -53,6 +53,11 @@ enum class Mod {
 	ExcludeBots,
 	ExcludeChannels,
 	EditsInExcluded,
+	NowPlaying,
+	NowPlayingSpotify,
+	NowPlayingYandex,
+	NowPlayingVk,
+	NowPlayingOther,
 
 	kCount,
 };

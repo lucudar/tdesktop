@@ -501,7 +501,10 @@ bool Enforced() {
 }
 
 bool ByDefault() {
-	return true;
+	// Telewhite: own popups by default, like upstream. Windows may silently
+	// drop toasts of an unpackaged application (only the sound is played),
+	// the system notifications can be enabled in the settings.
+	return false;
 }
 
 bool VolumeSupported() {

@@ -2033,6 +2033,8 @@ PRIVATE
     telewhite/telewhite_mods_box.h
     telewhite/telewhite_mods_preview.cpp
     telewhite/telewhite_mods_preview.h
+    telewhite/telewhite_now_playing.cpp
+    telewhite/telewhite_now_playing.h
     telewhite/telewhite_peer_info.cpp
     telewhite/telewhite_peer_info.h
     telewhite/telewhite_send_confirm.cpp

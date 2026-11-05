@@ -106,6 +106,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/cached_webview_availability.h"
 #include "telewhite/telewhite_icon.h"
 #include "telewhite/telewhite_location.h"
+#include "telewhite/telewhite_now_playing.h"
 #include "telewhite/telewhite_streamer_mode.h"
 #include "telewhite/telewhite_themes.h"
 #include "telewhite/telewhite_tweaks.h"
@@ -358,6 +359,7 @@ void Application::run() {
 	startEmojiImageLoader();
 	startSystemDarkModeViewer();
 	Telewhite::SetupStreamerMode(_lifetime);
+	Telewhite::NowPlaying::Setup(_lifetime);
 	Telewhite::SetupThemedIcon(_lifetime);
 	Telewhite::SetupStoryRings(_lifetime);
 	Telewhite::SetupFakeLocation();
@@ -2052,6 +2054,9 @@ bool Application::readyToQuit() {
 					prevented = true;
 				}
 				if (session->data().reactions().isQuitPrevent()) {
+					prevented = true;
+				}
+				if (Telewhite::NowPlaying::IsQuitPrevent(session)) {
 					prevented = true;
 				}
 			}

@@ -24,7 +24,7 @@ void HowItWorksBox(
 	rpl::producer<bool> value,
 	Fn<void(bool)> set);
 
-// Bright card for the main settings, opens Telewhite Mods on click.
+// Minimal accent row for the main settings, opens Telewhite Mods on click.
 [[nodiscard]] object_ptr<Ui::RpWidget> CreateModsBanner(
 	not_null<QWidget*> parent,
 	Fn<void()> open);

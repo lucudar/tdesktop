@@ -61,6 +61,11 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::ExcludeBots: return "telewhite-exclude-bots";
 	case Mod::ExcludeChannels: return "telewhite-exclude-channels";
 	case Mod::EditsInExcluded: return "telewhite-edits-in-excluded";
+	case Mod::NowPlaying: return "telewhite-now-playing";
+	case Mod::NowPlayingSpotify: return "telewhite-now-playing-spotify";
+	case Mod::NowPlayingYandex: return "telewhite-now-playing-yandex";
+	case Mod::NowPlayingVk: return "telewhite-now-playing-vk";
+	case Mod::NowPlayingOther: return "telewhite-now-playing-other";
 	case Mod::kCount: break;
 	}
 	Unexpected("Mod in Telewhite::Key.");
@@ -69,7 +74,10 @@ constexpr auto kModsCount = int(Mod::kCount);
 [[nodiscard]] bool DefaultValue(Mod mod) {
 	switch (mod) {
 	case Mod::ThemedIcon:
-	case Mod::EditHistoryInline: return true;
+	case Mod::EditHistoryInline:
+	case Mod::NowPlayingSpotify:
+	case Mod::NowPlayingYandex:
+	case Mod::NowPlayingVk: return true;
 	default: return false;
 	}
 }
@@ -189,7 +197,8 @@ void LoadMods(not_null<Core::Settings*> settings) {
 bool CountedInBanner(Mod mod) {
 	switch (mod) {
 	case Mod::StreamerMode:
-		// Only the Windows platform code consults streamer mode.
+	case Mod::NowPlaying:
+		// Streamer mode and players are supported only on Windows.
 		return Platform::IsWindows();
 	case Mod::ThemedIcon:
 	case Mod::FakeLocationAuto:
@@ -198,7 +207,11 @@ bool CountedInBanner(Mod mod) {
 	case Mod::ExcludeGroups:
 	case Mod::ExcludeBots:
 	case Mod::ExcludeChannels:
-	case Mod::EditsInExcluded: return false;
+	case Mod::EditsInExcluded:
+	case Mod::NowPlayingSpotify:
+	case Mod::NowPlayingYandex:
+	case Mod::NowPlayingVk:
+	case Mod::NowPlayingOther: return false;
 	default: return true;
 	}
 }

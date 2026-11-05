@@ -115,7 +115,7 @@ void ScenePanels::paintEvent(QPaintEvent *) {
 		PreviewPalette());
 }
 
-// Bright card in the main settings that opens the mods box.
+// Minimal accent row in the main settings that opens Telewhite Mods.
 class ModsBanner final : public Ui::RippleButton {
 public:
 	explicit ModsBanner(QWidget *parent);
@@ -127,7 +127,7 @@ protected:
 	QImage prepareRippleMask() const override;
 
 private:
-	QString _about;
+	QString _counter;
 	Ui::Animations::Simple _overAnimation;
 	bool _over = false;
 
@@ -153,14 +153,12 @@ ModsBanner::ModsBanner(QWidget *parent)
 		for (const auto value : list) {
 			enabled += value;
 		}
-		_about = enabled
-			? tr::lng_telewhite_mods_banner_enabled(
-				tr::now,
-				lt_amount,
-				QString::number(enabled),
-				lt_total,
-				QString::number(list.size()))
-			: tr::lng_telewhite_mods_banner_about(tr::now);
+		_counter = tr::lng_telewhite_mods_banner_counter(
+			tr::now,
+			lt_amount,
+			QString::number(enabled),
+			lt_total,
+			QString::number(list.size()));
 		update();
 	}, lifetime());
 
@@ -176,17 +174,23 @@ int ModsBanner::resizeGetHeight(int) {
 
 void ModsBanner::paintEvent(QPaintEvent *) {
 	auto p = QPainter(this);
-	const auto fg = st::windowFgActive->c;
+	const auto accent = st::windowActiveTextFg->c;
 	Preview::PaintBanner(p, QRectF(rect()), {
 		.title = tr::lng_telewhite_mods_button(tr::now),
-		.about = _about,
+		.counter = _counter,
 		.font = st::normalFont->f,
-		.accent = st::windowBgActive->c,
-		.accentFg = fg,
+		.bg = st::windowBg->c,
+		.fg = st::windowFg->c,
+		.sub = st::windowSubTextFg->c,
+		.accent = accent,
 		.scale = CurrentScale(),
 		.over = _overAnimation.value(_over ? 1. : 0.),
 	});
-	const auto ripple = QColor(fg.red(), fg.green(), fg.blue(), 56);
+	const auto ripple = QColor(
+		accent.red(),
+		accent.green(),
+		accent.blue(),
+		40);
 	paintRipple(p, 0, 0, &ripple);
 }
 
