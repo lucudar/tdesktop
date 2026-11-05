@@ -10,6 +10,8 @@ permissions:
 
 jobs:
   check-evidence:
+    # Telewhite: upstream PR policy, not needed in the fork.
+    if: github.repository == 'telegramdesktop/tdesktop'
     runs-on: ubuntu-slim
     steps:
       - name: Check for screenshot or video demonstration

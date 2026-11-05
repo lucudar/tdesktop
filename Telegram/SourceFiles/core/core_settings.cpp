@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "core/core_settings.h"
 
+#include "telewhite/telewhite_mods.h"
 #include "base/platform/base_platform_info.h"
 #include "calls/group/calls_group_common.h"
 #include "chat_helpers/spellchecker_locale_ids.h"
@@ -16,6 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "spellcheck/spellcheck_types.h"
 #include "storage/serialize_common.h"
 #include "ui/gl/gl_detection.h"
+#include "ui/text/format_values.h"
 #include "ui/widgets/fields/input_field.h"
 #include "webrtc/webrtc_create_adm.h"
 #include "webrtc/webrtc_device_common.h"
@@ -606,6 +608,12 @@ QByteArray Settings::serialize() const {
 	return result;
 }
 
+void Settings::setShowSeconds(bool value) {
+	writePref<bool>(kShowSecondsKey, value);
+	Ui::SetShowSecondsInTime(value);
+	_saveDelayed.fire({});
+}
+
 void Settings::addFromSerialized(
 		const QByteArray &serialized,
 		int writerVersion) {
@@ -1127,6 +1135,8 @@ void Settings::addFromSerialized(
 		}
 		if (stream.status() == QDataStream::Ok) {
 			_prefs = std::move(prefs);
+			Ui::SetShowSecondsInTime(showSeconds());
+			Telewhite::LoadMods(this);
 		}
 	}
 	if (!stream.atEnd()) {
