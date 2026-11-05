@@ -73,7 +73,7 @@ public:
 		anim::type animated = anim::type::instant);
 	void setUsername(const QString &username);
 	void setCountdown(const QString &countdown);
-	void setCardGeometry(QRect card);
+	void setCardGeometry(QRect card, QRectF centerReach);
 	void setCardPlacement(QPointF topLeft, float64 scale);
 	void setAppearance(PeerQrAppearance appearance, anim::type animated);
 	void setEmojiSource(PeerQrEmojiSource source);
@@ -85,6 +85,12 @@ public:
 	[[nodiscard]] rpl::producer<PeerQrColors> colorsValue() const;
 	[[nodiscard]] rpl::producer<not_null<QTouchEvent*>> touchPresses() const;
 	[[nodiscard]] PeerQrImageArgs prepareImage() const;
+	// the child's control tint lands on the clean backdrop inside its shape
+	void addControl(
+		not_null<QWidget*> control,
+		Fn<QPainterPath()> shape,
+		Fn<float64()> opacity = nullptr);
+	void setCovered(Fn<QRegion()> covered);
 
 protected:
 	bool eventHook(QEvent *e) override;
@@ -96,12 +102,19 @@ protected:
 private:
 	struct Card;
 	struct Countdown;
+	struct Control;
+	struct ControlShapes;
 	struct CardPlacement {
 		QPointF topLeft;
 		float64 scale = 1.;
 	};
+	struct Background {
+		QImage image;
+		QPointF center;
+	};
 	struct Wave {
 		QImage from;
+		QImage clean;
 		PeerQrColors colorsFrom;
 		QColor tint;
 		QPointF center;
@@ -122,26 +135,54 @@ private:
 	[[nodiscard]] bool layerShown() const;
 	[[nodiscard]] QPainterPath fieldClip(crl::time now, bool leaving) const;
 	[[nodiscard]] PeerQrEmojiPaint fieldArgs(crl::time now) const;
-	void paintField(QPainter &p, crl::time now);
+	void clipField(
+		QPainter &p,
+		crl::time now,
+		bool leaving,
+		const QPainterPath &shown) const;
+	void paintField(QPainter &p, crl::time now, const QPainterPath &shown);
 	void paintGift(
 		QPainter &p,
 		not_null<PeerQrGiftField*> field,
 		crl::time now,
-		bool leaving);
+		bool leaving,
+		const QPainterPath &shown);
+	[[nodiscard]] ControlShapes controlShapes(QRect clip) const;
+	void paintLayers(
+		QPainter &p,
+		crl::time now,
+		const QPainterPath &shown);
+	void paintFadingUnderlays(
+		QPainter &p,
+		crl::time now,
+		const ControlShapes &controls) const;
 	void startFieldEntry(crl::time now);
 	void updateWave(crl::time now);
-	void paintWave(QPainter &p, crl::time now) const;
+	void paintWave(
+		QPainter &p,
+		crl::time now,
+		const QPainterPath &clean) const;
+	void paintClean(
+		QPainter &p,
+		crl::time now,
+		QRect area,
+		const std::vector<QRect> &parts) const;
 	void paintCountdown(QPainter &p);
-	[[nodiscard]] QImage currentPicture(crl::time now) const;
+	[[nodiscard]] QImage currentPicture(crl::time now, bool clean) const;
 	[[nodiscard]] bool handleTouch(not_null<QTouchEvent*> e);
 	void stopTouchSwipe();
 	void checkAnimation();
 	[[nodiscard]] bool animationCallback(crl::time now);
 	[[nodiscard]] QPointF gradientCenter() const;
+	[[nodiscard]] QRectF gradientReach(QPointF center) const;
+	[[nodiscard]] QRect backgroundSource(QPointF center) const;
 	[[nodiscard]] bool backgroundStale() const;
-	[[nodiscard]] Fn<QImage()> prepareBackground();
+	[[nodiscard]] Fn<Background()> prepareBackground() const;
 	void requestBackground();
-	void applyBackground(QImage image);
+	void applyBackground(Background background);
+	void paintBackground(QPainter &p, QRect area) const;
+	[[nodiscard]] QRegion covered() const;
+	void updateField();
 	[[nodiscard]] QRectF cardRect() const;
 	[[nodiscard]] float64 cardScale() const;
 	[[nodiscard]] QRect logoRect() const;
@@ -155,12 +196,11 @@ private:
 	rpl::event_stream<not_null<QTouchEvent*>> _touchPresses;
 	const std::unique_ptr<Card> _card;
 	std::unique_ptr<Countdown> _countdown;
-	const std::array<QImage, 4> _corners;
-	QImage _background;
-	QPointF _backgroundCenter;
+	Background _background;
 	QString _link;
 	QString _username;
 	QRect _cardGeometry;
+	QRectF _cardReach;
 	std::optional<CardPlacement> _cardPlacement;
 	std::optional<Wave> _wave;
 	PeerQrEmojiSource _emojiSource;
@@ -170,6 +210,8 @@ private:
 	std::unique_ptr<PeerQrGiftField> _giftLeaving;
 	PeerQrLayerMotion _layer;
 	std::optional<int> _touchId;
+	std::vector<Control> _controls;
+	Fn<QRegion()> _covered;
 	crl::time _startedAt = 0;
 	crl::time _bounceStartedAt = 0;
 	crl::time _dipStartedAt = 0;

@@ -1432,6 +1432,66 @@ void SceneRegistrationDate(const Canvas &k, const QRectF &r, bool on) {
 	}
 }
 
+void Headphones(const Canvas &k, const QRectF &rect, const QColor &color) {
+	const auto w = rect.width();
+	const auto h = rect.height();
+	const auto line = std::max(1., w * 0.13);
+	const auto cup = QSizeF(w * 0.28, h * 0.46);
+	const auto top = rect.y() + line / 2.;
+	const auto middle = rect.y() + h * 0.6;
+	k.p.setPen(PenOf(color, line));
+	k.p.setBrush(Qt::NoBrush);
+	k.p.drawArc(
+		QRectF(
+			rect.x() + cup.width() / 2.,
+			top,
+			w - cup.width(),
+			2. * (middle - top)),
+		0,
+		180 * 16);
+	const auto radius = cup.width() * 0.4;
+	const auto y = rect.y() + h - cup.height();
+	FillRound(k, QRectF(QPointF(rect.x(), y), cup), radius, color);
+	FillRound(
+		k,
+		QRectF(QPointF(rect.x() + w - cup.width(), y), cup),
+		radius,
+		color);
+}
+
+void SceneNowPlaying(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	Row(k, r, r.y(), 12., {
+		.letter = U("В"),
+		.avatar = k.c.accent,
+		.name = U("Вы"),
+		.status = U("в сети"),
+		.statusColor = k.c.accent,
+	});
+	const auto top = r.y() + 32. * u;
+	auto left = r.x();
+	if (on) {
+		const auto size = 11. * u;
+		Headphones(
+			k,
+			QRectF(left, top + 1.5 * u, size, size * 0.92),
+			k.c.accent);
+		left += size + 4. * u;
+	}
+	DrawText(
+		k,
+		QRectF(left, top, r.x() + r.width() - left, 14. * u),
+		on ? U("Кино — Группа крови") : U("Люблю котиков и кофе"),
+		FontOf(k, 10.5, on),
+		k.c.fg);
+	DrawText(
+		k,
+		QRectF(r.x(), top + 14. * u, r.width(), 12. * u),
+		U("О себе"),
+		FontOf(k, 9.),
+		k.c.sub);
+}
+
 void SceneSnowfall(const Canvas &k, const QRectF &r, bool on) {
 	const auto u = k.s;
 	Bubble(k, r, r.y() + 6. * u, {
@@ -2200,6 +2260,7 @@ void PaintScene(const Canvas &k, Scene scene, bool on, const QRectF &r) {
 	case Scene::AuthorOnline: SceneAuthorOnline(k, r, on); return;
 	case Scene::HideStoryRings: SceneHideStoryRings(k, r, on); return;
 	case Scene::SnowfallChats: SceneSnowfallChats(k, r, on); return;
+	case Scene::NowPlaying: SceneNowPlaying(k, r, on); return;
 	case Scene::ThemeLight:
 	case Scene::ThemeDark:
 	case Scene::ThemeAmoled: SceneTheme(k, scene, r, on); return;
@@ -2322,6 +2383,7 @@ QString SceneTitle(Scene scene) {
 	case Scene::AuthorOnline: return U("Кто из авторов в сети");
 	case Scene::HideStoryRings: return U("Скрыть кольца историй");
 	case Scene::SnowfallChats: return U("Снегопад в чатах");
+	case Scene::NowPlaying: return U("Показывать, что я слушаю");
 	case Scene::ThemeLight: return U("Светлая тема Telewhite");
 	case Scene::ThemeDark: return U("Тёмная тема Telewhite");
 	case Scene::ThemeAmoled: return U("Полностью чёрная тема");
@@ -2367,6 +2429,7 @@ QString SceneHint(Scene scene) {
 	case Scene::AuthorOnline: return U("В группах на аватарке автора сообщения горит зелёная точка, пока он в сети.");
 	case Scene::HideStoryRings: return U("Вокруг аватарок в списке чатов больше нет цветных колец непросмотренных историй.");
 	case Scene::SnowfallChats: return U("Снег падает только в области сообщений открытого чата, не мешая списку чатов.");
+	case Scene::NowPlaying: return U("Пока в Spotify, Яндекс Музыке или VK Музыке играет трек, в «О себе» видно «🎧 Исполнитель — Название».");
 	case Scene::ThemeLight: return U("Белый фон и фиолетовые акценты. Нажмите, чтобы применить.");
 	case Scene::ThemeDark: return U("Ночная тема с фиолетовым акцентом. Нажмите, чтобы применить.");
 	case Scene::ThemeAmoled: return U("Чистый чёрный фон — для OLED-экранов и работы ночью. Нажмите, чтобы применить.");
@@ -2454,11 +2517,11 @@ void PaintPanels(
 }
 
 int BannerHeight(double scale) {
-	return int(std::ceil(64. * scale));
+	return int(std::ceil(48. * scale));
 }
 
 int BannerRadius(double scale) {
-	return int(std::lround(14. * scale));
+	return int(std::lround(12. * scale));
 }
 
 void PaintGhostIcon(QPainter &p, const QRectF &rect, const QColor &color) {
@@ -2506,80 +2569,68 @@ void PaintBanner(QPainter &p, const QRectF &rect, const Banner &banner) {
 
 	const auto u = banner.scale;
 	const auto k = Canvas{ p, Colors(), banner.font, u };
-	const auto over = std::clamp(banner.over, 0., 1.) * 0.1;
-	const auto white = banner.accentFg;
+	const auto over = std::clamp(banner.over, 0., 1.);
 	const auto radius = double(BannerRadius(u));
-	const auto light = QColor(255, 255, 255);
-	const auto accent = banner.accent;
+	const auto padding = 16. * u;
+	const auto centerY = rect.center().y();
 
-	auto shape = QPainterPath();
-	shape.addRoundedRect(rect, radius, radius);
-	auto gradient = QLinearGradient(rect.topLeft(), rect.bottomRight());
-	gradient.setColorAt(0., Mix(Mix(accent, light, 0.24), light, over));
-	gradient.setColorAt(0.55, Mix(accent, light, over));
-	gradient.setColorAt(1., Mix(Mix(accent, QColor(0, 0, 0), 0.16), light, over));
-	p.fillPath(shape, gradient);
-
-	p.setClipPath(shape, Qt::IntersectClip);
+	// Flat row with a light tint of the accent color, deeper on hover.
 	p.setPen(Qt::NoPen);
-	p.setBrush(Alpha(white, 0.09));
-	p.drawEllipse(
-		QPointF(rect.right() - 34. * u, rect.top() + 4. * u),
-		38. * u,
-		38. * u);
-	p.setBrush(Alpha(white, 0.07));
-	p.drawEllipse(
-		QPointF(rect.right() - 96. * u, rect.bottom() + 2. * u),
-		20. * u,
-		20. * u);
-	p.setClipping(false);
+	p.setBrush(Mix(banner.bg, banner.accent, 0.09 + 0.06 * over));
+	p.drawRoundedRect(rect, radius, radius);
 
-	const auto iconSize = 40. * u;
-	const auto icon = QRectF(
-		rect.x() + 12. * u,
-		rect.y() + (rect.height() - iconSize) / 2.,
-		iconSize,
-		iconSize);
-	p.setBrush(Alpha(white, 0.2));
-	p.drawEllipse(icon);
+	const auto iconHeight = 17. * u;
+	const auto iconWidth = 15. * u;
 	PaintGhostIcon(
 		p,
 		QRectF(
-			icon.x() + 11. * u,
-			icon.y() + 9.5 * u,
-			iconSize - 22. * u,
-			iconSize - 19. * u),
-		white);
+			rect.x() + padding,
+			centerY - iconHeight / 2.,
+			iconWidth,
+			iconHeight),
+		banner.accent);
 
-	const auto arrowX = rect.right() - 18. * u;
-	const auto arrowY = rect.center().y();
+	const auto arrowX = rect.right() - padding;
 	auto arrow = QPainterPath();
-	arrow.moveTo(arrowX - 3.5 * u, arrowY - 6. * u);
-	arrow.lineTo(arrowX + 2.5 * u, arrowY);
-	arrow.lineTo(arrowX - 3.5 * u, arrowY + 6. * u);
+	arrow.moveTo(arrowX - 4. * u, centerY - 5. * u);
+	arrow.lineTo(arrowX + 1. * u, centerY);
+	arrow.lineTo(arrowX - 4. * u, centerY + 5. * u);
 	p.setBrush(Qt::NoBrush);
 	p.setPen(QPen(
-		Alpha(white, 0.9),
-		2. * u,
+		banner.sub,
+		1.6 * u,
 		Qt::SolidLine,
 		Qt::RoundCap,
 		Qt::RoundJoin));
 	p.drawPath(arrow);
 
-	const auto left = icon.right() + 12. * u;
-	const auto width = arrowX - 14. * u - left;
+	const auto counterFont = FontOf(k, 13.);
+	const auto counterWidth = banner.counter.isEmpty()
+		? 0.
+		: std::ceil(TextWidth(counterFont, banner.counter));
+	const auto counterRight = arrowX - 14. * u;
+	if (counterWidth > 0.) {
+		DrawText(
+			k,
+			QRectF(
+				counterRight - counterWidth,
+				centerY - 10. * u,
+				counterWidth + 1.,
+				20. * u),
+			banner.counter,
+			counterFont,
+			banner.sub);
+	}
+
+	const auto left = rect.x() + padding + iconWidth + 14. * u;
+	const auto right = counterRight
+		- (counterWidth > 0. ? (counterWidth + 12. * u) : 0.);
 	DrawText(
 		k,
-		QRectF(left, arrowY - 19. * u, width, 20. * u),
+		QRectF(left, centerY - 11. * u, right - left, 22. * u),
 		banner.title,
-		FontOf(k, 14.5, true),
-		white);
-	DrawText(
-		k,
-		QRectF(left, arrowY + 1. * u, width, 17. * u),
-		banner.about,
-		FontOf(k, 12.),
-		Alpha(white, 0.82));
+		FontOf(k, 14., true),
+		banner.fg);
 	p.restore();
 }
 
