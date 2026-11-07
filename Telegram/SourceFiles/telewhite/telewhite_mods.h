@@ -59,6 +59,8 @@ enum class Mod {
 	NowPlayingVk,
 	NowPlayingOther,
 	GhostReadOnReply,
+	TranslateBeforeSend,
+	HidePremium,
 
 	kCount,
 };
@@ -73,6 +75,7 @@ enum class Option {
 	StoryRingColor, // Index in StoryRingColors(), 0 - default.
 	Translator, // TranslatorKind.
 	FakeCity, // Index in the cities list, -1 - custom point.
+	TranslateSendTo, // Index in SendLanguageNames().
 
 	kCount,
 };
