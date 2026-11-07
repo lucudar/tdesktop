@@ -932,6 +932,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_telewhite_mods_hide_premium" = "Скрыть Premium, подарки и звёзды";
 "lng_telewhite_mods_plugins" = "Плагины";
 "lng_telewhite_mods_plugins_about" = "Все функции Telewhite на одной странице: у каждой — переключатель и описание. Те же переключатели есть и в разделах модов, они связаны.";
+"lng_telewhite_mods_poll_results" = "Результаты опроса без голосования";
+"lng_telewhite_poll_results" = "Показать результаты";
+"lng_telewhite_poll_results_title" = "Результаты опроса";
+"lng_telewhite_poll_results_total" = "Проголосовали (без вас): {amount}";
+"lng_telewhite_poll_results_failed" = "Не удалось узнать результаты: Telegram не принял голос.";
+"lng_telewhite_mods_stickers_without_set" = "Стикеры без ссылки на набор";
 
 "lng_settings_shortcuts" = "Keyboard shortcuts";
 
