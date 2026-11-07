@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_peer.h"
 #include "data/data_poll.h"
 #include "data/data_session.h"
+#include "data/stickers/data_stickers_set.h"
 #include "history/history.h"
 #include "history/history_item.h"
 #include "lang/lang_keys.h"
