@@ -249,8 +249,8 @@ int Entry::lookupPinnedIndex(FilterId filterId) const {
 
 uint64 Entry::computeSortPosition(FilterId filterId) const {
 	const auto index = lookupPinnedIndex(filterId);
-	if (!index && !filterId) {
-		if (const auto local = Telewhite::LocalPinIndex(this)) {
+	if (!index) {
+		if (const auto local = Telewhite::LocalPinIndex(this, filterId)) {
 			return PinnedDialogPos(kTelewhiteLocalPinShift + local);
 		}
 	}
