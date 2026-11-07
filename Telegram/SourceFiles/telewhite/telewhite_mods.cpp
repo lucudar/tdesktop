@@ -67,6 +67,8 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::NowPlayingVk: return "telewhite-now-playing-vk";
 	case Mod::NowPlayingOther: return "telewhite-now-playing-other";
 	case Mod::GhostReadOnReply: return "telewhite-ghost-read-on-reply";
+	case Mod::TranslateBeforeSend: return "telewhite-translate-before-send";
+	case Mod::HidePremium: return "telewhite-hide-premium";
 	case Mod::kCount: break;
 	}
 	Unexpected("Mod in Telewhite::Key.");
@@ -98,6 +100,7 @@ constexpr auto kOptionsCount = int(Option::kCount);
 	case Option::StoryRingColor: return "telewhite-story-ring-color";
 	case Option::Translator: return "telewhite-translator";
 	case Option::FakeCity: return "telewhite-fake-city";
+	case Option::TranslateSendTo: return "telewhite-translate-send-to";
 	case Option::kCount: break;
 	}
 	Unexpected("Option in Telewhite::Key.");
