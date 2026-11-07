@@ -214,6 +214,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "tgw/tgw_scroll.h"
 #include "dialogs/dialogs_key.h"
 #include "calls/calls_instance.h"
+#include "telewhite/telewhite_mods.h"
 #include "telewhite/telewhite_send_confirm.h"
 #include "telewhite/telewhite_snowfall.h"
 #include "styles/style_boxes.h"
@@ -4157,6 +4158,7 @@ void HistoryWidget::refreshSendGiftToggle() {
 		| Type::Limited
 		| Type::Unique;
 	const auto has = user
+		&& !Telewhite::Enabled(Telewhite::Mod::HidePremium)
 		&& _canSendMessages
 		&& !user->isServiceUser()
 		&& !user->isSelf()
