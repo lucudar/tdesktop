@@ -254,10 +254,9 @@ rpl::event_stream<> ExcludedFoldersChanges;
 			u"ghost/read-on-reply"_q,
 			&tr::lng_telewhite_mods_ghost_read_on_reply,
 			Mod::GhostReadOnReply,
-			Scene::GhostRead,
+			Scene::ReadOnReply,
 			{ u"прочитано"_q, u"ответ"_q, u"reply"_q });
 		result.back().sub = true;
-		result.back().help = false;
 		result.back().shown = EnabledValue(Mod::GhostRead);
 		mod(
 			u"ghost/typing"_q,
@@ -355,9 +354,8 @@ rpl::event_stream<> ExcludedFoldersChanges;
 			u"sending/stickers-without-set"_q,
 			&tr::lng_telewhite_mods_stickers_without_set,
 			Mod::StickersWithoutSet,
-			Scene::ConfirmStickers,
+			Scene::StickersWithoutSet,
 			{ u"стикер"_q, u"анонимные"_q, u"набор"_q, u"sticker"_q });
-		result.back().help = false;
 		break;
 	case Group::Chats:
 		mod(
@@ -382,9 +380,8 @@ rpl::event_stream<> ExcludedFoldersChanges;
 			u"chats/poll-results"_q,
 			&tr::lng_telewhite_mods_poll_results,
 			Mod::PollResults,
-			Scene::NoSpoilers,
+			Scene::PollResults,
 			{ u"опрос"_q, u"результаты"_q, u"poll"_q });
-		result.back().help = false;
 		break;
 	case Group::Premium:
 		mod(
@@ -413,9 +410,8 @@ rpl::event_stream<> ExcludedFoldersChanges;
 			u"premium/translate-before-send"_q,
 			&tr::lng_telewhite_mods_translate_before_send,
 			Mod::TranslateBeforeSend,
-			Scene::TranslateChats,
+			Scene::TranslateBeforeSend,
 			{ u"перевод"_q, u"перед отправкой"_q, u"translate"_q });
-		result.back().help = false;
 		break;
 	case Group::Clean:
 		result.push_back({
@@ -458,9 +454,8 @@ rpl::event_stream<> ExcludedFoldersChanges;
 			u"clean/hide-premium"_q,
 			&tr::lng_telewhite_mods_hide_premium,
 			Mod::HidePremium,
-			Scene::HideSponsored,
+			Scene::HidePremium,
 			{ u"premium"_q, u"премиум"_q, u"подарки"_q, u"звёзды"_q, u"stars"_q });
-		result.back().help = false;
 		break;
 	case Group::Profile:
 		mod(
