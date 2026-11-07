@@ -14,6 +14,14 @@ namespace Ui {
 class TranslateProvider;
 } // namespace Ui
 
+namespace ChatHelpers {
+class Show;
+} // namespace ChatHelpers
+
+namespace Ui {
+class InputField;
+} // namespace Ui
+
 namespace Telewhite {
 
 // Google is used when it is chosen in the settings or when whole chats
@@ -22,5 +30,13 @@ namespace Telewhite {
 
 [[nodiscard]] std::unique_ptr<Ui::TranslateProvider>
 CreateGoogleTranslateProvider();
+
+// Target languages of "Translate before sending", names for the settings.
+[[nodiscard]] std::vector<QString> SendLanguageNames();
+
+// "Translate to ..." in the context menu of the message field.
+void SetupTranslateBeforeSend(
+	std::shared_ptr<ChatHelpers::Show> show,
+	not_null<Ui::InputField*> field);
 
 } // namespace Telewhite
