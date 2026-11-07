@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "settings/sections/settings_main.h"
 
+#include "telewhite/telewhite_mods.h"
 #include "telewhite/telewhite_mods_box.h"
 #include "telewhite/telewhite_mods_preview.h"
 #include "telewhite/telewhite_settings.h"
@@ -535,7 +536,8 @@ void BuildPremiumSection(SectionBuilder &builder) {
 	const auto controller = builder.controller();
 	const auto showOther = builder.showOther();
 
-	if (!session->premiumPossible()) {
+	if (!session->premiumPossible()
+		|| Telewhite::Enabled(Telewhite::Mod::HidePremium)) {
 		return;
 	}
 
