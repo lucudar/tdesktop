@@ -48,6 +48,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "settings/settings_common.h"
 #include "settings/sections/settings_premium.h"
+#include "telewhite/telewhite_translate.h"
 #include "styles/style_layers.h"
 #include "styles/style_boxes.h"
 #include "styles/style_chat.h"
@@ -725,6 +726,7 @@ std::shared_ptr<Ui::ChatStyle> InitMessageField(
 		.allowPremiumEmoji = std::move(allowPremiumEmoji),
 	});
 	InitMessageFieldGeometry(field);
+	Telewhite::SetupTranslateBeforeSend(show, field);
 	return style;
 }
 
