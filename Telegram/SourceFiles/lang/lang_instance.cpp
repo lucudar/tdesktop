@@ -749,6 +749,16 @@ void Instance::applyValue(const QByteArray &key, const QByteArray &value) {
 	});
 }
 
+void Instance::setLocalValue(ushort key, const QString &value) {
+	Expects(key < _values.size());
+
+	_values[key] = value;
+}
+
+void Instance::notifyLocalValuesChanged() {
+	_updated.fire({});
+}
+
 void Instance::updatePluralRules() {
 	if (_pluralId.isEmpty()) {
 		_pluralId = isCustom()
