@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "apiwrap.h"
 
+#include "telewhite/telewhite_ghost_read.h"
 #include "telewhite/telewhite_mods.h"
 #include "telewhite/telewhite_tweaks.h"
 #include "api/api_authorizations.h"
@@ -3885,6 +3886,17 @@ void ApiWrap::sendAction(const SendAction &action) {
 			sublist->readTillEnd();
 		} else {
 			_session->data().histories().readInbox(action.history);
+		}
+		if (Telewhite::Enabled(Telewhite::Mod::GhostRead)
+			&& Telewhite::Enabled(Telewhite::Mod::GhostReadOnReply)) {
+			// Ghost mode: replying reports the chat as read, like AyuGram.
+			if (topic) {
+				Telewhite::SendReadReceipt(topic);
+			} else if (sublist && sublist->parentChat()) {
+				Telewhite::SendReadReceipt(sublist);
+			} else {
+				Telewhite::SendReadReceipt(action.history);
+			}
 		}
 		action.history->getReadyFor(ShowAtTheEndMsgId);
 	}
