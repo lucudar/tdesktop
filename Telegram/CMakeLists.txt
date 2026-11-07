@@ -2016,6 +2016,8 @@ PRIVATE
     telewhite/telewhite_amoled_theme.h
     telewhite/telewhite_archive.cpp
     telewhite/telewhite_archive.h
+    telewhite/telewhite_custom_texts.cpp
+    telewhite/telewhite_custom_texts.h
     telewhite/telewhite_deleted.cpp
     telewhite/telewhite_deleted.h
     telewhite/telewhite_edit_history.cpp
