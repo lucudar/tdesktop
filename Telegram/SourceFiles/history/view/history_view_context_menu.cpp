@@ -116,6 +116,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "tgw/tgw_selection.h"
 #include "apiwrap.h"
 #include "telewhite/telewhite_edit_history.h"
+#include "telewhite/telewhite_extras.h"
 #include "telewhite/telewhite_message_details.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
@@ -1941,6 +1942,7 @@ void FillContextMenuItems(
 	if (item && !item->isService()) {
 		Telewhite::AddEditHistoryAction(result, list->controller(), item);
 		Telewhite::AddMessageDetailsAction(result, list->controller(), item);
+		Telewhite::AddPollResultsAction(result, list->controller(), item);
 	}
 	AddCopyLinkAction(result, link);
 	AddMessageActions(result, request, list);
