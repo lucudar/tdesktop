@@ -1432,6 +1432,163 @@ void SceneRegistrationDate(const Canvas &k, const QRectF &r, bool on) {
 	}
 }
 
+void SceneReadOnReply(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	Caption(k, r, r.y(), U("Чат у собеседника"));
+	const auto first = Bubble(k, r, r.y() + 16. * u, {
+		.text = U("Ты тут?"),
+		.time = U("12:30"),
+		.out = true,
+		.checks = on ? 2 : 1,
+	});
+	Bubble(k, r, first.y() + first.height() + 6. * u, {
+		.text = U("Да, отвечаю"),
+		.time = U("12:31"),
+	});
+}
+
+void SceneTranslateBeforeSend(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	Caption(k, r, r.y(), U("Вы набрали"));
+	const auto field = QRectF(r.x(), r.y() + 14. * u, r.width(), 18. * u);
+	FillRound(k, field, 9. * u, k.c.inBg);
+	DrawText(
+		k,
+		field.adjusted(8. * u, 0., -8. * u, 0.),
+		on ? U("Hello everyone!") : U("Привет всем!"),
+		FontOf(k, 9.5),
+		k.c.inFg);
+	Caption(
+		k,
+		r,
+		field.y() + field.height() + 5. * u,
+		on ? U("Правый клик → «Перевести на английский»") : U("Уйдёт в чат"));
+	const auto spec = BubbleSpec{
+		.text = on ? U("Hello everyone!") : U("Привет всем!"),
+		.time = U("12:30"),
+		.out = true,
+		.checks = 1,
+	};
+	Bubble(k, r, r.y() + r.height() - BubbleHeight(k, spec), spec);
+}
+
+void SceneHidePremium(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	Caption(k, r, r.y(), U("Настройки"));
+	const auto items = on
+		? QStringList{ U("Уведомления"), U("Конфиденциальность"), U("Папки с чатами") }
+		: QStringList{ U("Telegram Premium"), U("Мои звёзды"), U("Отправить подарок") };
+	auto top = r.y() + 16. * u;
+	for (const auto &item : items) {
+		const auto row = QRectF(r.x(), top, r.width(), 20. * u);
+		FillRound(k, row, 6. * u, k.c.inBg);
+		const auto dot = QPointF(row.x() + 10. * u, row.center().y());
+		if (on) {
+			FillCircle(k, dot, 3.5 * u, k.c.sub);
+		} else {
+			Star(k, dot, 5. * u);
+		}
+		DrawText(
+			k,
+			row.adjusted(20. * u, 0., -6. * u, 0.),
+			item,
+			FontOf(k, 9.5),
+			k.c.inFg);
+		top += 24. * u;
+	}
+}
+
+void ScenePollResults(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	Caption(k, r, r.y(), U("Анонимный опрос"));
+	const auto card = QRectF(
+		r.x(),
+		r.y() + 14. * u,
+		r.width(),
+		r.height() - 14. * u);
+	FillRound(k, card, 10. * u, k.c.inBg);
+	DrawText(
+		k,
+		QRectF(
+			card.x() + 8. * u,
+			card.y() + 5. * u,
+			card.width() - 16. * u,
+			14. * u),
+		U("Куда идём вечером?"),
+		FontOf(k, 9.5, true),
+		k.c.inFg);
+	const auto labels = std::array{ U("Кино"), U("Парк"), U("Домой") };
+	const auto percents = std::array{ 58, 30, 12 };
+	auto top = card.y() + 23. * u;
+	for (auto i = 0; i != int(labels.size()); ++i) {
+		const auto line = QRectF(
+			card.x() + 8. * u,
+			top,
+			card.width() - 16. * u,
+			13. * u);
+		if (on) {
+			DrawText(
+				k,
+				QRectF(line.x(), line.y(), 26. * u, line.height()),
+				QString::number(percents[i]) + QChar('%'),
+				FontOf(k, 9., true),
+				k.c.inFg);
+			DrawText(
+				k,
+				line.adjusted(28. * u, 0., 0., 0.),
+				labels[i],
+				FontOf(k, 9.5),
+				k.c.inFg);
+			const auto full = line.width() - 28. * u;
+			FillRound(
+				k,
+				QRectF(
+					line.x() + 28. * u,
+					line.y() + line.height() + 1. * u,
+					std::max(full * percents[i] / 100., 3. * u),
+					3. * u),
+				1.5 * u,
+				k.c.accent);
+		} else {
+			k.p.setPen(PenOf(k.c.inSub, 1. * u));
+			k.p.setBrush(Qt::NoBrush);
+			k.p.drawEllipse(
+				QPointF(line.x() + 5. * u, line.center().y()),
+				4.5 * u,
+				4.5 * u);
+			DrawText(
+				k,
+				line.adjusted(14. * u, 0., 0., 0.),
+				labels[i],
+				FontOf(k, 9.5),
+				k.c.inFg);
+		}
+		top += 21. * u;
+	}
+}
+
+void SceneStickersWithoutSet(const Canvas &k, const QRectF &r, bool on) {
+	const auto u = k.s;
+	Caption(k, r, r.y(), U("Собеседник видит"));
+	const auto radius = 23. * u;
+	const auto center = QPointF(
+		r.x() + r.width() / 2.,
+		r.y() + 18. * u + radius);
+	Face(k, center, radius);
+	const auto line = QRectF(
+		r.x(),
+		center.y() + radius + 8. * u,
+		r.width(),
+		14. * u);
+	DrawText(
+		k,
+		line,
+		on ? U("Стикер без набора") : U("Набор «Котики» →"),
+		FontOf(k, 9.5, !on),
+		on ? k.c.sub : k.c.accent,
+		kCenter);
+}
+
 void Headphones(const Canvas &k, const QRectF &rect, const QColor &color) {
 	const auto w = rect.width();
 	const auto h = rect.height();
@@ -2261,6 +2418,11 @@ void PaintScene(const Canvas &k, Scene scene, bool on, const QRectF &r) {
 	case Scene::HideStoryRings: SceneHideStoryRings(k, r, on); return;
 	case Scene::SnowfallChats: SceneSnowfallChats(k, r, on); return;
 	case Scene::NowPlaying: SceneNowPlaying(k, r, on); return;
+	case Scene::ReadOnReply: SceneReadOnReply(k, r, on); return;
+	case Scene::TranslateBeforeSend: SceneTranslateBeforeSend(k, r, on); return;
+	case Scene::HidePremium: SceneHidePremium(k, r, on); return;
+	case Scene::PollResults: ScenePollResults(k, r, on); return;
+	case Scene::StickersWithoutSet: SceneStickersWithoutSet(k, r, on); return;
 	case Scene::ThemeLight:
 	case Scene::ThemeDark:
 	case Scene::ThemeAmoled: SceneTheme(k, scene, r, on); return;
@@ -2384,6 +2546,11 @@ QString SceneTitle(Scene scene) {
 	case Scene::HideStoryRings: return U("Скрыть кольца историй");
 	case Scene::SnowfallChats: return U("Снегопад в чатах");
 	case Scene::NowPlaying: return U("Показывать, что я слушаю");
+	case Scene::ReadOnReply: return U("«Прочитано», когда я отвечаю");
+	case Scene::TranslateBeforeSend: return U("Перевод перед отправкой");
+	case Scene::HidePremium: return U("Скрыть Premium, подарки и звёзды");
+	case Scene::PollResults: return U("Результаты опроса без голосования");
+	case Scene::StickersWithoutSet: return U("Стикеры без ссылки на набор");
 	case Scene::ThemeLight: return U("Светлая тема Telewhite");
 	case Scene::ThemeDark: return U("Тёмная тема Telewhite");
 	case Scene::ThemeAmoled: return U("Полностью чёрная тема");
@@ -2430,6 +2597,11 @@ QString SceneHint(Scene scene) {
 	case Scene::HideStoryRings: return U("Вокруг аватарок в списке чатов больше нет цветных колец непросмотренных историй.");
 	case Scene::SnowfallChats: return U("Снег падает только в области сообщений открытого чата, не мешая списку чатов.");
 	case Scene::NowPlaying: return U("Пока в Spotify, Яндекс Музыке или VK Музыке играет трек, в «О себе» видно «🎧 Исполнитель — Название».");
+	case Scene::ReadOnReply: return U("В режиме призрака чат отмечается прочитанным, только когда вы сами в него отвечаете. Просто читать — по-прежнему незаметно.");
+	case Scene::TranslateBeforeSend: return U("Правый клик в поле ввода → «Перевести на …»: набранный текст заменяется переводом. Язык выбирается ниже, Ctrl+Z возвращает исходный текст.");
+	case Scene::HidePremium: return U("Из настроек пропадают Premium, звёзды, Business и подарки, а у поля ввода и в меню чата — кнопки подарка.");
+	case Scene::PollResults: return U("В меню анонимного опроса — «Показать результаты»: Telewhite голосует и сразу отзывает голос, а проценты показывает отдельно. Викторины не трогаются.");
+	case Scene::StickersWithoutSet: return U("Статичный стикер уходит файлом: собеседник видит тот же стикер, но не может открыть ваш набор. Анимированные отправляются как обычно.");
 	case Scene::ThemeLight: return U("Белый фон и фиолетовые акценты. Нажмите, чтобы применить.");
 	case Scene::ThemeDark: return U("Ночная тема с фиолетовым акцентом. Нажмите, чтобы применить.");
 	case Scene::ThemeAmoled: return U("Чистый чёрный фон — для OLED-экранов и работы ночью. Нажмите, чтобы применить.");
