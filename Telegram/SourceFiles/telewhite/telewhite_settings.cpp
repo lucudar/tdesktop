@@ -21,6 +21,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/settings_common_session.h"
 #include "storage/localstorage.h"
 #include "telewhite/telewhite_archive.h"
+#include "telewhite/telewhite_custom_texts.h"
 #include "telewhite/telewhite_deleted.h"
 #include "telewhite/telewhite_location.h"
 #include "telewhite/telewhite_mods.h"
@@ -75,6 +76,7 @@ enum class Group {
 	Location,
 	Streamer,
 	Design,
+	Texts,
 };
 
 constexpr auto kGhostMods = std::array{
@@ -126,6 +128,7 @@ rpl::event_stream<> ExcludedFoldersChanges;
 	case Group::Location: return &tr::lng_telewhite_mods_location;
 	case Group::Streamer: return &tr::lng_telewhite_mods_streamer;
 	case Group::Design: return &tr::lng_telewhite_mods_design;
+	case Group::Texts: return &tr::lng_telewhite_mods_texts;
 	}
 	Unexpected("Group in Telewhite::GroupTitle.");
 }
@@ -144,6 +147,7 @@ rpl::event_stream<> ExcludedFoldersChanges;
 	case Group::Location: return &st::menuIconAddress;
 	case Group::Streamer: return &st::menuIconStartStream;
 	case Group::Design: return &st::menuIconPalette;
+	case Group::Texts: return &st::menuIconEdit;
 	}
 	Unexpected("Group in Telewhite::GroupIcon.");
 }
@@ -162,6 +166,7 @@ rpl::event_stream<> ExcludedFoldersChanges;
 	case Group::Location: return tr::lng_telewhite_mods_location_about();
 	case Group::Streamer: return tr::lng_telewhite_mods_streamer_about();
 	case Group::Design: return tr::lng_telewhite_mods_themes_about();
+	case Group::Texts: return tr::lng_telewhite_mods_texts_about();
 	}
 	Unexpected("Group in Telewhite::GroupAbout.");
 }
@@ -552,6 +557,9 @@ rpl::event_stream<> ExcludedFoldersChanges;
 	case Group::Design:
 		// Built separately in BuildDesign(), the status is the theme.
 		break;
+	case Group::Texts:
+		// Built separately in BuildCustomTexts().
+		break;
 	}
 	return result;
 }
@@ -559,6 +567,23 @@ rpl::event_stream<> ExcludedFoldersChanges;
 [[nodiscard]] rpl::producer<GroupStatus> GroupStatusValue(
 		Group group,
 		not_null<Main::Session*> session) {
+	if (group == Group::Texts) {
+		return rpl::single(rpl::empty) | rpl::then(
+			CustomTextsChanges()
+		) | rpl::map([] {
+			const auto count = CustomTextsCount();
+			const auto total = int(CustomTexts().size());
+			const auto text = !count
+				? tr::lng_telewhite_mods_status_off(tr::now)
+				: tr::lng_telewhite_mods_status_partial(
+					tr::now,
+					lt_amount,
+					QString::number(count),
+					lt_total,
+					QString::number(total));
+			return GroupStatus{ .text = text, .active = (count > 0) };
+		});
+	}
 	if (group == Group::Design) {
 		return CurrentThemeValue(
 		) | rpl::map([](Theme theme) {
@@ -1522,9 +1547,79 @@ void BuildMusicExtras(SectionBuilder &builder) {
 	builder.addDividerText(tr::lng_telewhite_mods_music_now_about());
 }
 
+void CustomTextBox(not_null<Ui::GenericBox*> box, QByteArray key) {
+	auto title = QString();
+	auto hint = QString();
+	for (const auto &entry : CustomTexts()) {
+		if (entry.key == key) {
+			title = entry.title;
+			hint = entry.hint;
+		}
+	}
+	box->setTitle(rpl::single(title));
+	if (!hint.isEmpty()) {
+		box->addRow(object_ptr<Ui::FlatLabel>(
+			box,
+			rpl::single(hint),
+			st::boxLabel));
+	}
+	const auto field = box->addRow(object_ptr<Ui::InputField>(
+		box,
+		st::defaultInputField,
+		tr::lng_telewhite_texts_placeholder(),
+		CustomTextValue(key)));
+	box->setFocusCallback([=] {
+		field->setFocusFast();
+	});
+	const auto save = [=] {
+		SetCustomText(key, field->getLastText().trimmed());
+		box->closeBox();
+	};
+	field->submits(
+	) | rpl::on_next([=] {
+		save();
+	}, field->lifetime());
+	box->addButton(tr::lng_settings_save(), save);
+	box->addLeftButton(tr::lng_telewhite_texts_reset(), [=] {
+		SetCustomText(key, QString());
+		box->closeBox();
+	});
+    box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+}
+
+void BuildCustomTexts(SectionBuilder &builder) {
+	const auto controller = builder.controller();
+	builder.addSkip();
+	for (const auto &entry : CustomTexts()) {
+		const auto key = entry.key;
+		builder.addButton({
+			.id = u"telewhite/texts/"_q + QString::fromLatin1(key),
+			.title = rpl::single(entry.title),
+			.st = &st::settingsButtonNoIcon,
+			.label = rpl::single(rpl::empty) | rpl::then(
+				CustomTextsChanges()
+			) | rpl::map([=] {
+				const auto value = CustomTextValue(key);
+				return value.isEmpty()
+					? tr::lng_telewhite_texts_default(tr::now)
+					: value;
+			}),
+			.onClick = [=] {
+				controller->show(Box(CustomTextBox, key));
+			},
+			.keywords = { u"надписи"_q, u"статус"_q, u"печатает"_q, u"в сети"_q },
+		});
+	}
+	builder.addSkip();
+	builder.addDividerText(GroupAbout(Group::Texts));
+}
+
 void BuildGroup(SectionBuilder &builder, Group group) {
 	if (group == Group::Design) {
 		BuildDesign(builder);
+		return;
+	} else if (group == Group::Texts) {
+		BuildCustomTexts(builder);
 		return;
 	}
 	builder.addSkip();
@@ -1576,6 +1671,7 @@ void BuildMods(SectionBuilder &builder) {
 	builder.addDivider();
 	builder.addSkip();
 	AddGroupRow(builder, Group::Design);
+	AddGroupRow(builder, Group::Texts);
 	builder.addSkip();
 	builder.addDividerText(tr::lng_telewhite_mods_hint());
 }
@@ -1634,6 +1730,7 @@ const auto kMusicMeta = MakeGroupMeta<Group::Music>();
 const auto kLocationMeta = MakeGroupMeta<Group::Location>();
 const auto kStreamerMeta = MakeGroupMeta<Group::Streamer>();
 const auto kDesignMeta = MakeGroupMeta<Group::Design>();
+const auto kTextsMeta = MakeGroupMeta<Group::Texts>();
 
 [[nodiscard]] const BuildHelper &GroupMeta(Group group) {
 	switch (group) {
@@ -1649,6 +1746,7 @@ const auto kDesignMeta = MakeGroupMeta<Group::Design>();
 	case Group::Location: return kLocationMeta;
 	case Group::Streamer: return kStreamerMeta;
 	case Group::Design: return kDesignMeta;
+	case Group::Texts: return kTextsMeta;
 	}
 	Unexpected("Group in Telewhite::GroupMeta.");
 }
@@ -1695,6 +1793,7 @@ Type GroupId(Group group) {
 	case Group::Location: return GroupSection<Group::Location>::Id();
 	case Group::Streamer: return GroupSection<Group::Streamer>::Id();
 	case Group::Design: return GroupSection<Group::Design>::Id();
+	case Group::Texts: return GroupSection<Group::Texts>::Id();
 	}
 	Unexpected("Group in Telewhite::GroupId.");
 }
