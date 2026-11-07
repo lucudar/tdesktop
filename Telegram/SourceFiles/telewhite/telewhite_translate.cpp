@@ -5,6 +5,11 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "telewhite/telewhite_translate.h"
+#include <QtCore/QPointer>
+#include "chat_helpers/compose/compose_show.h"
+#include "lang/lang_keys.h"
+#include "lang/translate_provider.h"
+#include "ui/widgets/fields/input_field.h"
 
 #include "main/main_session.h"
 #include "telewhite/telewhite_mods.h"
@@ -113,6 +118,123 @@ bool UseGoogleTranslate(not_null<Main::Session*> session) {
 
 std::unique_ptr<Ui::TranslateProvider> CreateGoogleTranslateProvider() {
 	return std::make_unique<GoogleTranslateProvider>();
+}
+
+namespace {
+
+constexpr auto kSendLanguages = std::array{
+	QLocale::English,
+	QLocale::Russian,
+	QLocale::Ukrainian,
+	QLocale::German,
+	QLocale::Spanish,
+	QLocale::French,
+	QLocale::Italian,
+	QLocale::Portuguese,
+	QLocale::Turkish,
+	QLocale::Polish,
+	QLocale::Chinese,
+	QLocale::Japanese,
+	QLocale::Korean,
+	QLocale::Arabic,
+};
+
+// "Translate to <language>", accusative case.
+[[nodiscard]] QString SendLanguageName(int index) {
+	switch (index) {
+	case 0: return u"английский"_q;
+	case 1: return u"русский"_q;
+	case 2: return u"украинский"_q;
+	case 3: return u"немецкий"_q;
+	case 4: return u"испанский"_q;
+	case 5: return u"французский"_q;
+	case 6: return u"итальянский"_q;
+	case 7: return u"португальский"_q;
+	case 8: return u"турецкий"_q;
+	case 9: return u"польский"_q;
+	case 10: return u"китайский"_q;
+	case 11: return u"японский"_q;
+	case 12: return u"корейский"_q;
+	case 13: return u"арабский"_q;
+	}
+	return u"английский"_q;
+}
+
+[[nodiscard]] int SendLanguageIndex() {
+	return std::clamp(
+		OptionNow(Option::TranslateSendTo),
+		0,
+		int(kSendLanguages.size()) - 1);
+}
+
+void TranslateField(
+		std::shared_ptr<ChatHelpers::Show> show,
+		QPointer<Ui::InputField> weak,
+		LanguageId to) {
+	const auto field = weak.data();
+	if (!field) {
+		return;
+	}
+	const auto text = field->getTextWithTags().text;
+	if (text.trimmed().isEmpty()) {
+		return;
+	}
+	const auto provider = std::shared_ptr<Ui::TranslateProvider>(
+		Ui::CreateTranslateProvider(&show->session()));
+	auto request = Ui::TranslateProviderRequest();
+	request.text = TextWithEntities{ text };
+	provider->request(std::move(request), to, [=](
+			Ui::TranslateProviderResult result) {
+		// Keeps the provider alive until the answer.
+		[[maybe_unused]] const auto keep = provider;
+		const auto strong = weak.data();
+		if (!strong) {
+			return;
+		} else if (!result.text || result.text->text.isEmpty()) {
+			show->showToast(tr::lng_telewhite_translate_field_failed(tr::now));
+			return;
+		}
+		strong->setTextWithTags(
+			{ result.text->text, {} },
+			Ui::InputField::HistoryAction::NewEntry);
+	});
+}
+
+} // namespace
+
+std::vector<QString> SendLanguageNames() {
+	auto result = std::vector<QString>();
+	for (auto i = 0; i != int(kSendLanguages.size()); ++i) {
+		const auto name = SendLanguageName(i);
+		result.push_back(name.left(1).toUpper() + name.mid(1));
+	}
+	return result;
+}
+
+void SetupTranslateBeforeSend(
+		std::shared_ptr<ChatHelpers::Show> show,
+		not_null<Ui::InputField*> field) {
+	const auto weak = QPointer<Ui::InputField>(field.get());
+	field->addContextMenuHook([=](Ui::InputField::ContextMenuRequest request) {
+		if (!Enabled(Mod::TranslateBeforeSend)) {
+			return;
+		}
+		const auto strong = weak.data();
+		if (!strong || strong->getTextWithTags().text.trimmed().isEmpty()) {
+			return;
+		}
+		const auto index = SendLanguageIndex();
+		const auto to = LanguageId{ kSendLanguages[index] };
+		request.menu->addSeparator();
+		const auto action = request.menu->addAction(
+			tr::lng_telewhite_translate_field(
+				tr::now,
+				lt_language,
+				SendLanguageName(index)));
+		QObject::connect(action, &QAction::triggered, action, [=] {
+			TranslateField(show, weak, to);
+		});
+	});
 }
 
 } // namespace Telewhite
