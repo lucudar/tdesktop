@@ -66,6 +66,7 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::NowPlayingYandex: return "telewhite-now-playing-yandex";
 	case Mod::NowPlayingVk: return "telewhite-now-playing-vk";
 	case Mod::NowPlayingOther: return "telewhite-now-playing-other";
+	case Mod::GhostReadOnReply: return "telewhite-ghost-read-on-reply";
 	case Mod::kCount: break;
 	}
 	Unexpected("Mod in Telewhite::Key.");
@@ -77,7 +78,8 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::EditHistoryInline:
 	case Mod::NowPlayingSpotify:
 	case Mod::NowPlayingYandex:
-	case Mod::NowPlayingVk: return true;
+	case Mod::NowPlayingVk:
+	case Mod::GhostReadOnReply: return true;
 	default: return false;
 	}
 }
@@ -211,7 +213,8 @@ bool CountedInBanner(Mod mod) {
 	case Mod::NowPlayingSpotify:
 	case Mod::NowPlayingYandex:
 	case Mod::NowPlayingVk:
-	case Mod::NowPlayingOther: return false;
+	case Mod::NowPlayingOther:
+	case Mod::GhostReadOnReply: return false;
 	default: return true;
 	}
 }
