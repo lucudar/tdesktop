@@ -93,6 +93,11 @@ public:
 		return _values[key];
 	}
 	QString getNonDefaultValue(const QByteArray &key) const;
+
+	// Telewhite: own text of a phrase on this computer only, the language
+	// pack itself is not changed and not saved.
+	void setLocalValue(ushort key, const QString &value);
+	void notifyLocalValuesChanged();
 	bool isNonDefaultPlural(ushort key) const {
 		Expects(key + 5 < _nonDefaultSet.size());
 
