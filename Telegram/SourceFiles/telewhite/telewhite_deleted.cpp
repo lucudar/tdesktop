@@ -15,10 +15,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_user.h"
 #include "history/history.h"
 #include "history/history_item.h"
+#include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "telewhite/telewhite_archive.h"
 #include "telewhite/telewhite_mods.h"
 #include "ui/text/text.h"
+#include "ui/widgets/menu/menu_add_action_callback.h"
+#include "window/window_session_controller.h"
+#include "styles/style_menu_icons.h"
 
 namespace Telewhite {
 namespace {
@@ -68,6 +72,42 @@ constexpr auto kMaxInlineVersions = 10;
 	return cache.emplace(userId, std::move(ids)).first->second;
 }
 
+[[nodiscard]] std::string ChatsKey(not_null<Main::Session*> session) {
+	return "telewhite-exclude-chats-"
+		+ std::to_string(session->userId().bare);
+}
+
+[[nodiscard]] auto ChatsCache()
+-> base::flat_map<uint64, base::flat_set<uint64>> & {
+	static auto result = base::flat_map<uint64, base::flat_set<uint64>>();
+	return result;
+}
+
+[[nodiscard]] rpl::event_stream<> &ChatsChanges() {
+	static auto result = rpl::event_stream<>();
+	return result;
+}
+
+[[nodiscard]] const base::flat_set<uint64> &Chats(
+		not_null<Main::Session*> session) {
+	auto &cache = ChatsCache();
+	const auto userId = session->userId().bare;
+	if (const auto i = cache.find(userId); i != end(cache)) {
+		return i->second;
+	}
+	auto ids = base::flat_set<uint64>();
+	const auto serialized = Core::App().settings().readPref<QByteArray>(
+		ChatsKey(session));
+	for (const auto &part : serialized.split(',')) {
+		auto ok = false;
+		const auto id = part.toULongLong(&ok);
+		if (ok && id) {
+			ids.emplace(uint64(id));
+		}
+	}
+	return cache.emplace(userId, std::move(ids)).first->second;
+}
+
 [[nodiscard]] double Opacity(Option option) {
 	return 1. - std::clamp(OptionNow(option), 0, 90) / 100.;
 }
@@ -76,6 +116,9 @@ constexpr auto kMaxInlineVersions = 10;
 
 bool ExcludedChat(not_null<History*> history) {
 	const auto peer = history->peer;
+	if (ExcludedPeer(peer)) {
+		return true;
+	}
 	if (Enabled(Mod::ExcludeGroups)
 		&& (peer->isChat() || peer->isMegagroup())) {
 		return true;
@@ -170,6 +213,71 @@ void SetExcludedFolders(
 		parts.join(','));
 	Core::App().saveSettingsDelayed();
 	FoldersCache()[session->userId().bare] = ids;
+}
+
+bool ExcludedPeer(not_null<PeerData*> peer) {
+	return Chats(&peer->session()).contains(SerializePeerId(peer->id));
+}
+
+void SetExcludedPeer(not_null<PeerData*> peer, bool excluded) {
+	const auto session = &peer->session();
+	auto ids = Chats(session);
+	const auto id = uint64(SerializePeerId(peer->id));
+	if (excluded) {
+		ids.emplace(id);
+	} else {
+		ids.remove(id);
+	}
+	auto parts = QByteArrayList();
+	for (const auto value : ids) {
+		parts.push_back(QByteArray::number(qulonglong(value)));
+	}
+	Core::App().settings().writePref<QByteArray>(
+		ChatsKey(session),
+		parts.join(','));
+	Core::App().saveSettingsDelayed();
+	ChatsCache()[session->userId().bare] = std::move(ids);
+	ChatsChanges().fire({});
+}
+
+std::vector<not_null<PeerData*>> ExcludedPeers(
+		not_null<Main::Session*> session) {
+	auto result = std::vector<not_null<PeerData*>>();
+	for (const auto value : Chats(session)) {
+		const auto id = DeserializePeerId(quint64(value));
+		if (const auto peer = session->data().peerLoaded(id)) {
+			result.push_back(peer);
+		}
+	}
+	return result;
+}
+
+rpl::producer<> ExcludedPeersChanges() {
+	return ChatsChanges().events();
+}
+
+void AddExcludeChatAction(
+		not_null<Window::SessionController*> controller,
+		not_null<PeerData*> peer,
+		const Ui::Menu::MenuCallback &addAction) {
+	if (!Enabled(Mod::SaveDeleted)
+		&& !Enabled(Mod::EditHistory)
+		&& !Enabled(Mod::KeepOwnDeleted)
+		&& !Enabled(Mod::KeepTimerMessages)) {
+		return;
+	}
+	const auto excluded = ExcludedPeer(peer);
+	const auto window = base::make_weak(controller);
+	addAction(excluded
+		? tr::lng_telewhite_exclude_chat_off(tr::now)
+		: tr::lng_telewhite_exclude_chat_on(tr::now), [=] {
+		SetExcludedPeer(peer, !excluded);
+		if (const auto strong = window.get()) {
+			strong->showToast(excluded
+				? tr::lng_telewhite_exclude_chat_off_done(tr::now)
+				: tr::lng_telewhite_exclude_chat_on_done(tr::now));
+		}
+	}, excluded ? &st::menuIconRestore : &st::menuIconDelete);
 }
 
 TextWithEntities WithEditVersions(
