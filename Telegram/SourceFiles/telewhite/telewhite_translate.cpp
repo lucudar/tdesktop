@@ -6,6 +6,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "telewhite/telewhite_translate.h"
 #include <QtCore/QPointer>
+#include <QtGui/QAction>
+#include <QtWidgets/QMenu>
 #include "chat_helpers/compose/compose_show.h"
 #include "lang/lang_keys.h"
 #include "lang/translate_provider.h"
