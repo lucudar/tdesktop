@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_session.h"
 
+#include "telewhite/telewhite_local_pins.h"
+
 #include "ui/text/text_utilities.h"
 #include "telewhite/telewhite_archive.h"
 #include "telewhite/telewhite_deleted.h"
@@ -3041,6 +3043,9 @@ void Session::reorderTwoPinnedChats(
 	Expects(key1.entry()->folderKnown() && key2.entry()->folderKnown());
 	Expects(filterId || (key1.entry()->folder() == key2.entry()->folder()));
 
+	if (Telewhite::ReorderLocalPins(filterId, key1, key2)) {
+		return;
+	}
 	const auto topic = key1.topic();
 	const auto list = topic
 		? topic->forum()->topicsList()
