@@ -351,6 +351,13 @@ rpl::event_stream<> ExcludedFoldersChanges;
 			Mod::AntiCaps,
 			Scene::AntiCaps,
 			{ u"капс"_q, u"caps"_q, u"заглавные"_q, u"регистр"_q });
+		mod(
+			u"sending/stickers-without-set"_q,
+			&tr::lng_telewhite_mods_stickers_without_set,
+			Mod::StickersWithoutSet,
+			Scene::ConfirmStickers,
+			{ u"стикер"_q, u"анонимные"_q, u"набор"_q, u"sticker"_q });
+		result.back().help = false;
 		break;
 	case Group::Chats:
 		mod(
@@ -371,6 +378,13 @@ rpl::event_stream<> ExcludedFoldersChanges;
 			Mod::BypassRestrictions,
 			Scene::BypassRestrictions,
 			{ u"ограничения"_q, u"недоступен"_q, u"restricted"_q });
+		mod(
+			u"chats/poll-results"_q,
+			&tr::lng_telewhite_mods_poll_results,
+			Mod::PollResults,
+			Scene::NoSpoilers,
+			{ u"опрос"_q, u"результаты"_q, u"poll"_q });
+		result.back().help = false;
 		break;
 	case Group::Premium:
 		mod(
