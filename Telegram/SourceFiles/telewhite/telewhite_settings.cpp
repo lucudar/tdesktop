@@ -1611,6 +1611,7 @@ void BuildGroup(SectionBuilder &builder, Group group) {
 			.option = Option::TranslateSendTo,
 			.options = SendLanguageNames(),
 			.keywords = { u"перевод"_q, u"язык"_q, u"language"_q },
+			.shown = EnabledValue(Mod::TranslateBeforeSend),
 		});
 	}
 	builder.addSkip();
