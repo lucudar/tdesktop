@@ -61,6 +61,8 @@ enum class Mod {
 	GhostReadOnReply,
 	TranslateBeforeSend,
 	HidePremium,
+	PollResults,
+	StickersWithoutSet,
 
 	kCount,
 };
