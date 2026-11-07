@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "data/data_chat_filters.h"
+#include "data/data_peer.h"
 #include "data/data_session.h"
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
@@ -229,6 +230,15 @@ rpl::event_stream<> ExcludedFoldersChanges;
 			Mod::GhostRead,
 			Scene::GhostRead,
 			{ u"прочитано"_q, u"галочки"_q, u"read"_q });
+		mod(
+			u"ghost/read-on-reply"_q,
+			&tr::lng_telewhite_mods_ghost_read_on_reply,
+			Mod::GhostReadOnReply,
+			Scene::GhostRead,
+			{ u"прочитано"_q, u"ответ"_q, u"reply"_q });
+		result.back().sub = true;
+		result.back().help = false;
+		result.back().shown = EnabledValue(Mod::GhostRead);
 		mod(
 			u"ghost/typing"_q,
 			&tr::lng_telewhite_mods_ghost_typing,
@@ -844,6 +854,73 @@ void ExcludedFoldersBox(
 	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
 }
 
+[[nodiscard]] QString ExcludedChatsText(not_null<Main::Session*> session) {
+	const auto peers = ExcludedPeers(session);
+	if (peers.empty()) {
+		return tr::lng_telewhite_mods_exclude_chats_none(tr::now);
+	}
+	auto names = QStringList();
+	for (const auto &peer : peers) {
+		if (names.size() == 2) {
+			break;
+		}
+		names.push_back(peer->name());
+	}
+	auto result = names.join(u", "_q);
+	const auto more = int(peers.size()) - int(names.size());
+	if (more > 0) {
+		result += u" "_q + tr::lng_telewhite_mods_exclude_chats_more(
+			tr::now,
+			lt_amount,
+			QString::number(more));
+	}
+	return result;
+}
+
+void ExcludedChatsBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Main::Session*> session) {
+	box->setTitle(tr::lng_telewhite_mods_exclude_chats());
+	const auto peers = ExcludedPeers(session);
+	if (peers.empty()) {
+		box->addRow(object_ptr<Ui::FlatLabel>(
+			box,
+			tr::lng_telewhite_mods_exclude_chats_empty(),
+			st::boxLabel));
+		box->addButton(tr::lng_box_ok(), [=] { box->closeBox(); });
+		return;
+	}
+	const auto checks = box->lifetime().make_state<
+		std::vector<std::pair<not_null<PeerData*>, not_null<Ui::Checkbox*>>>>();
+	for (const auto &peer : peers) {
+		const auto checkbox = box->addRow(
+			object_ptr<Ui::Checkbox>(
+				box,
+				peer->name(),
+				true,
+				st::defaultBoxCheckbox),
+			st::boxRowPadding + style::margins(
+				0,
+				0,
+				0,
+				st::boxOptionListSkip));
+		checks->emplace_back(peer, checkbox);
+	}
+	box->addRow(object_ptr<Ui::FlatLabel>(
+		box,
+		tr::lng_telewhite_mods_exclude_chats_about(),
+		st::boxLabel));
+	box->addButton(tr::lng_settings_save(), [=] {
+		for (const auto &[peer, checkbox] : *checks) {
+			if (!checkbox->checked()) {
+				SetExcludedPeer(peer, false);
+			}
+		}
+		box->closeBox();
+	});
+	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+}
+
 void CustomFakePointBox(not_null<Ui::GenericBox*> box) {
 	box->setTitle(tr::lng_telewhite_mods_fake_location_custom());
 	box->addRow(object_ptr<Ui::FlatLabel>(
@@ -976,6 +1053,20 @@ void AddExclusions(SectionBuilder &builder) {
 			controller->show(Box(ExcludedFoldersBox, session));
 		},
 		.keywords = { u"исключения"_q, u"папки"_q, u"folders"_q },
+	});
+	builder.addButton({
+		.id = u"telewhite/deleted/exclude-chats"_q,
+		.title = tr::lng_telewhite_mods_exclude_chats(),
+		.st = &st::settingsButtonNoIcon,
+		.label = rpl::single(rpl::empty) | rpl::then(
+			ExcludedPeersChanges()
+		) | rpl::map([=] {
+			return ExcludedChatsText(session);
+		}),
+		.onClick = [=] {
+			controller->show(Box(ExcludedChatsBox, session));
+		},
+		.keywords = { u"исключения"_q, u"чаты"_q, u"chats"_q },
 	});
 	exclude(
 		u"edits-everywhere"_q,
