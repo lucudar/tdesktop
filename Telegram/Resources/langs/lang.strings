@@ -895,6 +895,36 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_telewhite_mods_snow_speed_fast" = "Быстро";
 "lng_telewhite_mods_snow_speed_very_fast" = "Очень быстро";
 "lng_telewhite_mods_effects_about" = "«Снегопад поверх окна» засыпает снегом всё окно, «Снегопад в чатах» — только область сообщений открытого чата. Клики проходят сквозь снежинки.";
+"lng_telewhite_mods_ghost_read_on_reply" = "«Прочитано», когда я отвечаю";
+"lng_telewhite_mods_exclude_chats" = "Не сохранять в чатах";
+"lng_telewhite_mods_exclude_chats_none" = "Нет";
+"lng_telewhite_mods_exclude_chats_more" = "и ещё {amount}";
+"lng_telewhite_mods_exclude_chats_empty" = "Чатов-исключений пока нет. Откройте чат, нажмите «⋮» и выберите «Не сохранять удалённые здесь».";
+"lng_telewhite_mods_exclude_chats_about" = "Снимите галочку, чтобы в этом чате снова сохранялись удалённые и изменённые сообщения. Добавить чат — «⋮» в чате → «Не сохранять удалённые здесь».";
+"lng_telewhite_exclude_chat_on" = "Не сохранять удалённые здесь";
+"lng_telewhite_exclude_chat_off" = "Сохранять удалённые здесь";
+"lng_telewhite_exclude_chat_on_done" = "Удалённые и изменённые сообщения в этом чате больше не сохраняются.";
+"lng_telewhite_exclude_chat_off_done" = "Удалённые и изменённые сообщения в этом чате снова сохраняются.";
+"lng_telewhite_details" = "Подробности";
+"lng_telewhite_details_title" = "Подробности сообщения";
+"lng_telewhite_details_copy" = "Копировать";
+"lng_telewhite_details_message_id" = "ID сообщения";
+"lng_telewhite_details_chat" = "Чат";
+"lng_telewhite_details_sender" = "Отправитель";
+"lng_telewhite_details_date" = "Отправлено";
+"lng_telewhite_details_edited" = "Изменено";
+"lng_telewhite_details_forward_from" = "Переслано от";
+"lng_telewhite_details_forward_hidden" = "скрыт";
+"lng_telewhite_details_forward_date" = "Исходная дата";
+"lng_telewhite_details_forward_id" = "Исходный ID";
+"lng_telewhite_details_views" = "Просмотры";
+"lng_telewhite_details_replies" = "Ответы";
+"lng_telewhite_details_file" = "Файл";
+"lng_telewhite_details_type" = "Тип";
+"lng_telewhite_details_size" = "Размер";
+"lng_telewhite_details_dimensions" = "Разрешение";
+"lng_telewhite_details_duration" = "Длительность";
+"lng_telewhite_details_media_id" = "ID медиа";
 
 "lng_settings_shortcuts" = "Keyboard shortcuts";
 
