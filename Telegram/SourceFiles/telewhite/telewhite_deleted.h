@@ -15,6 +15,14 @@ namespace Main {
 class Session;
 } // namespace Main
 
+namespace Ui::Menu {
+struct MenuCallback;
+} // namespace Ui::Menu
+
+namespace Window {
+class SessionController;
+} // namespace Window
+
 namespace Telewhite {
 
 // Chats excluded from "Save deleted" in the settings.
@@ -42,6 +50,19 @@ void KeepAsDeleted(not_null<HistoryItem*> item);
 void SetExcludedFolders(
 	not_null<Main::Session*> session,
 	const base::flat_set<FilterId> &ids);
+
+// Separate chats excluded from "Save deleted" and "Edit history".
+[[nodiscard]] bool ExcludedPeer(not_null<PeerData*> peer);
+void SetExcludedPeer(not_null<PeerData*> peer, bool excluded);
+[[nodiscard]] std::vector<not_null<PeerData*>> ExcludedPeers(
+	not_null<Main::Session*> session);
+[[nodiscard]] rpl::producer<> ExcludedPeersChanges();
+
+// "Don't save deleted here" / "Save deleted here" in the chat menu.
+void AddExcludeChatAction(
+	not_null<Window::SessionController*> controller,
+	not_null<PeerData*> peer,
+	const Ui::Menu::MenuCallback &addAction);
 
 // Message text with the previous versions below it, painted pale.
 [[nodiscard]] TextWithEntities WithEditVersions(
