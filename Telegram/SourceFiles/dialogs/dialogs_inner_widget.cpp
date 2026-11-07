@@ -97,6 +97,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/peer_list_box.h"
 #include "api/api_chat_filters.h"
 #include "base/qt/qt_common_adapters.h"
+#include "telewhite/telewhite_local_pins.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_boxes.h"
 #include "styles/style_chat.h" // popupMenuExpandedSeparator
@@ -148,6 +149,22 @@ constexpr auto kPreviewPostsLimit = 3;
 }
 
 [[nodiscard]] int PinnedDialogsCount(
+		FilterId filterId,
+		not_null<Dialogs::IndexedList*> list) {
+	auto result = 0;
+	for (const auto &row : *list) {
+		if (row->entry()->fixedOnTopIndex()) {
+			continue;
+		} else if (!Telewhite::IsPinnedInList(row->entry(), filterId)) {
+			break;
+		}
+		++result;
+	}
+	return result;
+}
+
+// Server pins only: Telewhite local pins go right below them.
+[[nodiscard]] int ServerPinnedDialogsCount(
 		FilterId filterId,
 		not_null<Dialogs::IndexedList*> list) {
 	auto result = 0;
@@ -2090,7 +2107,7 @@ void InnerWidget::mouseMoveEvent(QMouseEvent *e) {
 		const auto local = e->pos();
 		const auto outside = _dragging ? false : true;
 		const auto delta = local - _dragStart;
-		const auto thresholdY = _pressed->entry()->isPinnedDialog(_filterId)
+		const auto thresholdY = Telewhite::IsPinnedInList(_pressed->entry(), _filterId)
 			? kStartDragToFilterThresholdY
 			: kStartDragToFilterThresholdX;
 		const auto distanceExceeded = std::abs(delta.x())
@@ -2624,7 +2641,7 @@ void InnerWidget::mousePressEvent(QMouseEvent *e) {
 	ClickHandler::pressed();
 	if (anim::Disabled()
 		&& !_chatPreviewScheduled
-		&& (!_pressed || !_pressed->entry()->isPinnedDialog(_filterId))) {
+		&& (!_pressed || !Telewhite::IsPinnedInList(_pressed->entry(), _filterId))) {
 		mousePressReleased(e->globalPos(), e->button(), e->modifiers());
 	}
 }
@@ -2782,14 +2799,14 @@ void InnerWidget::startReorderPinned(QPoint localPosition) {
 }
 
 int InnerWidget::countPinnedIndex(Row *ofRow) {
-	if (!ofRow || !ofRow->entry()->isPinnedDialog(_filterId)) {
+	if (!ofRow || !Telewhite::IsPinnedInList(ofRow->entry(), _filterId)) {
 		return -1;
 	}
 	auto result = 0;
 	for (const auto &row : *_shownList) {
 		if (row->entry()->fixedOnTopIndex()) {
 			continue;
-		} else if (!row->entry()->isPinnedDialog(_filterId)) {
+		} else if (!Telewhite::IsPinnedInList(row->entry(), _filterId)) {
 			break;
 		} else if (row == ofRow) {
 			return result;
@@ -2895,6 +2912,15 @@ bool InnerWidget::updateReorderPinned(QPoint localPosition) {
 		return false;
 	}
 
+	// Telewhite: server pins and local pins are reordered separately.
+	const auto serverPinned = Dialogs::ServerPinnedDialogsCount(
+		_filterId,
+		_shownList);
+	const auto draggingServer = _dragging->entry()->isPinnedDialog(
+		_filterId);
+	const auto minIndex = draggingServer ? 0 : serverPinned;
+	const auto maxCount = draggingServer ? serverPinned : pinnedCount;
+
 	const auto draggingHeight = _dragging->height();
 	const auto promoted = fixedOnTopCount();
 	auto yaddWas = _pinnedRows[_draggingIndex].yadd.current();
@@ -2904,9 +2930,9 @@ bool InnerWidget::updateReorderPinned(QPoint localPosition) {
 	const auto crossThreshold = [&](int height) {
 		return std::max(draggingHeight / 2, height - draggingHeight / 2);
 	};
-	if (_dragStart.y() > localPosition.y() && _draggingIndex > 0) {
+	if (_dragStart.y() > localPosition.y() && _draggingIndex > minIndex) {
 		auto delta = _dragStart.y() - localPosition.y();
-		for (auto from = _draggingIndex; from > 0; --from) {
+		for (auto from = _draggingIndex; from > minIndex; --from) {
 			const auto height
 				= (*(_shownList->cbegin() + promoted + from - 1))->height();
 			if (delta < crossThreshold(height)) {
@@ -2923,9 +2949,9 @@ bool InnerWidget::updateReorderPinned(QPoint localPosition) {
 			shiftHeight -= height;
 		}
 	} else if (_dragStart.y() < localPosition.y()
-			&& _draggingIndex + 1 < pinnedCount) {
+			&& _draggingIndex + 1 < maxCount) {
 		auto delta = localPosition.y() - _dragStart.y();
-		for (auto from = _draggingIndex; from + 1 < pinnedCount; ++from) {
+		for (auto from = _draggingIndex; from + 1 < maxCount; ++from) {
 			const auto height
 				= (*(_shownList->cbegin() + promoted + from + 1))->height();
 			if (delta < crossThreshold(height)) {
