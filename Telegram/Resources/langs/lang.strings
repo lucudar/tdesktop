@@ -936,6 +936,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_telewhite_poll_results_total" = "Проголосовали (без вас): {amount}";
 "lng_telewhite_poll_results_failed" = "Не удалось узнать результаты: Telegram не принял голос.";
 "lng_telewhite_mods_stickers_without_set" = "Стикеры без ссылки на набор";
+"lng_telewhite_mods_texts" = "Свои надписи";
+"lng_telewhite_mods_texts_about" = "Замените стандартные надписи своими: «в сети», «печатает», «был(а) недавно» и другие. Их видите только вы, у собеседников всё как обычно. Пустое поле или «Сбросить» возвращает стандартную надпись.";
+"lng_telewhite_texts_default" = "стандартно";
+"lng_telewhite_texts_placeholder" = "Ваш текст";
+"lng_telewhite_texts_reset" = "Сбросить";
 
 "lng_settings_shortcuts" = "Keyboard shortcuts";
 
