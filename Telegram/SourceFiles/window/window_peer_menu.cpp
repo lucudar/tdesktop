@@ -128,6 +128,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/peers/manage_community_box.h"
 #include "boxes/premium_preview_box.h"
 #include "telewhite/telewhite_archive.h"
+#include "telewhite/telewhite_deleted.h"
 #include "telewhite/telewhite_ghost_read.h"
 #include "telewhite/telewhite_local_pins.h"
 #include "telewhite/telewhite_mods.h"
@@ -1966,6 +1967,7 @@ void Filler::fillHistoryActions() {
 	Telewhite::AddSendReadReceiptAction(_controller, _thread, _addAction);
 	if (_peer) {
 		Telewhite::AddDeletedMessagesAction(_controller, _peer, _addAction);
+		Telewhite::AddExcludeChatAction(_controller, _peer, _addAction);
 	}
 	addTranslate();
 	addReport();
