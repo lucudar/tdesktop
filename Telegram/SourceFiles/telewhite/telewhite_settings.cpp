@@ -75,22 +75,6 @@ enum class Group {
 	Location,
 	Streamer,
 	Design,
-	Plugins,
-};
-
-// Groups shown together on the "Plugins" page.
-constexpr auto kPluginGroups = std::array{
-	Group::Ghost,
-	Group::Deleted,
-	Group::Forward,
-	Group::Sending,
-	Group::Chats,
-	Group::Premium,
-	Group::Clean,
-	Group::Profile,
-	Group::Music,
-	Group::Location,
-	Group::Streamer,
 };
 
 constexpr auto kGhostMods = std::array{
@@ -142,7 +126,6 @@ rpl::event_stream<> ExcludedFoldersChanges;
 	case Group::Location: return &tr::lng_telewhite_mods_location;
 	case Group::Streamer: return &tr::lng_telewhite_mods_streamer;
 	case Group::Design: return &tr::lng_telewhite_mods_design;
-	case Group::Plugins: return &tr::lng_telewhite_mods_plugins;
 	}
 	Unexpected("Group in Telewhite::GroupTitle.");
 }
@@ -161,7 +144,6 @@ rpl::event_stream<> ExcludedFoldersChanges;
 	case Group::Location: return &st::menuIconAddress;
 	case Group::Streamer: return &st::menuIconStartStream;
 	case Group::Design: return &st::menuIconPalette;
-	case Group::Plugins: return &st::menuIconCustomize;
 	}
 	Unexpected("Group in Telewhite::GroupIcon.");
 }
@@ -180,7 +162,6 @@ rpl::event_stream<> ExcludedFoldersChanges;
 	case Group::Location: return tr::lng_telewhite_mods_location_about();
 	case Group::Streamer: return tr::lng_telewhite_mods_streamer_about();
 	case Group::Design: return tr::lng_telewhite_mods_themes_about();
-	case Group::Plugins: return tr::lng_telewhite_mods_plugins_about();
 	}
 	Unexpected("Group in Telewhite::GroupAbout.");
 }
@@ -571,18 +552,6 @@ rpl::event_stream<> ExcludedFoldersChanges;
 	case Group::Design:
 		// Built separately in BuildDesign(), the status is the theme.
 		break;
-	case Group::Plugins:
-		for (const auto plugin : kPluginGroups) {
-			if ((plugin == Group::Streamer || plugin == Group::Music)
-				&& !Platform::IsWindows()) {
-				continue;
-			}
-			auto part = GroupToggles(plugin, session);
-			for (auto &toggle : part) {
-				result.push_back(std::move(toggle));
-			}
-		}
-		break;
 	}
 	return result;
 }
@@ -628,8 +597,11 @@ rpl::event_stream<> ExcludedFoldersChanges;
 
 [[nodiscard]] bool GroupShown(Group group) {
 	// Streamer mode and players are supported only on Windows.
-	return (group != Group::Streamer && group != Group::Music)
-		|| Platform::IsWindows();
+	if (group == Group::Music) {
+		// "Now playing" is hidden for now.
+		return false;
+	}
+	return (group != Group::Streamer) || Platform::IsWindows();
 }
 
 // Small round "?" button near the toggle, opens the "how it works" box.
@@ -1550,58 +1522,9 @@ void BuildMusicExtras(SectionBuilder &builder) {
 	builder.addDividerText(tr::lng_telewhite_mods_music_now_about());
 }
 
-[[nodiscard]] QString PluginToggleId(const QString &id) {
-	const auto prefix = u"telewhite/"_q;
-	return id.startsWith(prefix)
-		? (u"telewhite/plugins/"_q + id.mid(prefix.size()))
-		: id;
-}
-
-// Every mod as a card: the title of its group, a toggle and what it does.
-void BuildPlugins(SectionBuilder &builder) {
-	for (const auto group : kPluginGroups) {
-		if (!GroupShown(group)) {
-			continue;
-		}
-		builder.addSkip();
-		builder.addSubsectionTitle((*GroupTitle(group))());
-		auto toggles = GroupToggles(group, builder.session());
-		for (auto &toggle : toggles) {
-			const auto hint = (toggle.help && !toggle.sub)
-				? Telewhite::Preview::SceneHint(toggle.scene)
-				: QString();
-			toggle.id = PluginToggleId(toggle.id);
-			AddToggle(builder, std::move(toggle));
-			if (!hint.isEmpty()) {
-				builder.add([=](const WidgetContext &ctx) {
-					auto label = object_ptr<Ui::FlatLabel>(
-						ctx.container,
-						rpl::single(hint),
-						st::boxLabel);
-					return SectionBuilder::WidgetToAdd{
-						.widget = std::move(label),
-						.margin = QMargins(
-							st::boxRowPadding.left(),
-							0,
-							st::boxRowPadding.right(),
-							st::boxOptionListSkip),
-					};
-				});
-			}
-		}
-		builder.addSkip();
-		builder.addDivider();
-	}
-	builder.addSkip();
-	builder.addDividerText(GroupAbout(Group::Plugins));
-}
-
 void BuildGroup(SectionBuilder &builder, Group group) {
 	if (group == Group::Design) {
 		BuildDesign(builder);
-		return;
-	} else if (group == Group::Plugins) {
-		BuildPlugins(builder);
 		return;
 	}
 	builder.addSkip();
@@ -1633,10 +1556,6 @@ void BuildGroup(SectionBuilder &builder, Group group) {
 }
 
 void BuildMods(SectionBuilder &builder) {
-	builder.addSkip();
-	AddGroupRow(builder, Group::Plugins);
-	builder.addSkip();
-	builder.addDivider();
 	builder.addSkip();
 	for (const auto group : {
 		Group::Ghost,
@@ -1715,7 +1634,6 @@ const auto kMusicMeta = MakeGroupMeta<Group::Music>();
 const auto kLocationMeta = MakeGroupMeta<Group::Location>();
 const auto kStreamerMeta = MakeGroupMeta<Group::Streamer>();
 const auto kDesignMeta = MakeGroupMeta<Group::Design>();
-const auto kPluginsMeta = MakeGroupMeta<Group::Plugins>();
 
 [[nodiscard]] const BuildHelper &GroupMeta(Group group) {
 	switch (group) {
@@ -1731,7 +1649,6 @@ const auto kPluginsMeta = MakeGroupMeta<Group::Plugins>();
 	case Group::Location: return kLocationMeta;
 	case Group::Streamer: return kStreamerMeta;
 	case Group::Design: return kDesignMeta;
-	case Group::Plugins: return kPluginsMeta;
 	}
 	Unexpected("Group in Telewhite::GroupMeta.");
 }
@@ -1778,7 +1695,6 @@ Type GroupId(Group group) {
 	case Group::Location: return GroupSection<Group::Location>::Id();
 	case Group::Streamer: return GroupSection<Group::Streamer>::Id();
 	case Group::Design: return GroupSection<Group::Design>::Id();
-	case Group::Plugins: return GroupSection<Group::Plugins>::Id();
 	}
 	Unexpected("Group in Telewhite::GroupId.");
 }
