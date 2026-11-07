@@ -107,6 +107,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "telewhite/telewhite_icon.h"
 #include "telewhite/telewhite_location.h"
 #include "telewhite/telewhite_now_playing.h"
+#include "telewhite/telewhite_custom_texts.h"
 #include "telewhite/telewhite_streamer_mode.h"
 #include "telewhite/telewhite_themes.h"
 #include "telewhite/telewhite_tweaks.h"
@@ -359,6 +360,7 @@ void Application::run() {
 	startEmojiImageLoader();
 	startSystemDarkModeViewer();
 	Telewhite::SetupStreamerMode(_lifetime);
+	Telewhite::SetupCustomTexts(_lifetime);
 	Telewhite::NowPlaying::Setup(_lifetime);
 	Telewhite::SetupThemedIcon(_lifetime);
 	Telewhite::SetupStoryRings(_lifetime);
