@@ -431,6 +431,8 @@ bool PinnedLimitReached(
 	const auto owner = &history->owner();
 	if (owner->pinnedCanPin(filterId, history)) {
 		return false;
+	} else if (Telewhite::PinLocallyOverLimit(controller, history, filterId)) {
+		return true;
 	}
 	controller->show(
 		Box(FilterPinsLimitBox, &history->session(), filterId));
@@ -4694,6 +4696,12 @@ void TogglePinnedThread(
 	}
 
 	const auto isPinned = !history->isPinnedDialog(filterId);
+	if (Telewhite::IsLocallyPinned(history, filterId)) {
+		Telewhite::SetLocallyPinned(history, false, filterId);
+		if (isPinned) {
+			return;
+		}
+	}
 	if (isPinned && PinnedLimitReached(controller, history, filterId)) {
 		return;
 	}
