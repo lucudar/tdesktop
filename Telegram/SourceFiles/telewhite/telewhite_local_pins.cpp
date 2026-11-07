@@ -22,25 +22,47 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Telewhite {
 namespace {
 
-constexpr auto kVersion = quint32(1);
+// Version 1 had only the main list, version 2 keeps a list per chat folder.
+constexpr auto kVersion = quint32(2);
 constexpr auto kMaxLocalPins = 1000;
+constexpr auto kMaxLists = 1000;
 
-[[nodiscard]] QByteArray Serialize(
-		UserId userId,
-		const std::vector<PeerId> &order) {
+using Lists = base::flat_map<FilterId, std::vector<PeerId>>;
+
+[[nodiscard]] QByteArray Serialize(UserId userId, const Lists &lists) {
 	auto result = QByteArray();
 	auto stream = QDataStream(&result, QIODevice::WriteOnly);
 	stream.setVersion(QDataStream::Qt_5_1);
-	stream << kVersion << quint64(userId.bare) << quint32(order.size());
-	for (const auto &peerId : order) {
-		stream << SerializePeerId(peerId);
+	stream << kVersion << quint64(userId.bare) << quint32(lists.size());
+	for (const auto &[filterId, order] : lists) {
+		stream << qint32(filterId) << quint32(order.size());
+		for (const auto &peerId : order) {
+			stream << SerializePeerId(peerId);
+		}
 	}
 	return result;
 }
 
-[[nodiscard]] std::vector<PeerId> Deserialize(
-		UserId userId,
-		const QByteArray &serialized) {
+[[nodiscard]] bool ReadOrder(QDataStream &stream, std::vector<PeerId> &order) {
+	auto count = quint32();
+	stream >> count;
+	if (stream.status() != QDataStream::Ok
+		|| count > quint32(kMaxLocalPins)) {
+		return false;
+	}
+	order.reserve(count);
+	for (auto i = quint32(); i != count; ++i) {
+		auto peerId = quint64();
+		stream >> peerId;
+		if (stream.status() != QDataStream::Ok) {
+			return false;
+		}
+		order.push_back(DeserializePeerId(peerId));
+	}
+	return true;
+}
+
+[[nodiscard]] Lists Deserialize(UserId userId, const QByteArray &serialized) {
 	if (serialized.isEmpty()) {
 		return {};
 	}
@@ -48,30 +70,43 @@ constexpr auto kMaxLocalPins = 1000;
 	stream.setVersion(QDataStream::Qt_5_1);
 	auto version = quint32();
 	auto storedUserId = quint64();
-	auto count = quint32();
-	stream >> version >> storedUserId >> count;
-	if (stream.status() != QDataStream::Ok
-		|| version != kVersion
-		|| storedUserId != userId.bare
-		|| count > quint32(kMaxLocalPins)) {
+	stream >> version >> storedUserId;
+	if (stream.status() != QDataStream::Ok || storedUserId != userId.bare) {
 		return {};
 	}
-	auto result = std::vector<PeerId>();
-	result.reserve(count);
-	for (auto i = quint32(); i != count; ++i) {
-		auto peerId = quint64();
-		stream >> peerId;
-		if (stream.status() != QDataStream::Ok) {
+	auto result = Lists();
+	if (version == 1) {
+		auto order = std::vector<PeerId>();
+		if (!ReadOrder(stream, order)) {
 			return {};
 		}
-		result.push_back(DeserializePeerId(peerId));
+		result.emplace(FilterId(), std::move(order));
+		return result;
+	} else if (version != kVersion) {
+		return {};
+	}
+	auto lists = quint32();
+	stream >> lists;
+	if (stream.status() != QDataStream::Ok || lists > quint32(kMaxLists)) {
+		return {};
+	}
+	for (auto i = quint32(); i != lists; ++i) {
+		auto filterId = qint32();
+		stream >> filterId;
+		auto order = std::vector<PeerId>();
+		if (stream.status() != QDataStream::Ok || !ReadOrder(stream, order)) {
+			return {};
+		}
+		if (!order.empty()) {
+			result.emplace(FilterId(filterId), std::move(order));
+		}
 	}
 	return result;
 }
 
 // Never dropped with the session: sort keys may be asked during teardown.
-[[nodiscard]] std::vector<PeerId> &Order(not_null<Main::Session*> session) {
-	static auto loaded = base::flat_map<uint64, std::vector<PeerId>>();
+[[nodiscard]] Lists &AllLists(not_null<Main::Session*> session) {
+	static auto loaded = base::flat_map<uint64, Lists>();
 	const auto key = session->uniqueId();
 	auto i = loaded.find(key);
 	if (i == end(loaded)) {
@@ -84,53 +119,85 @@ constexpr auto kMaxLocalPins = 1000;
 	return i->second;
 }
 
+void Save(not_null<Main::Session*> session) {
+	session->local().writeTelewhiteData(
+		Storage::TelewhiteData::LocalPins,
+		Serialize(session->userId(), AllLists(session)),
+		false);
+}
+
+[[nodiscard]] const std::vector<PeerId> *OrderFor(
+		not_null<Main::Session*> session,
+		FilterId filterId) {
+	const auto &lists = AllLists(session);
+	const auto i = lists.find(filterId);
+	return (i != end(lists)) ? &i->second : nullptr;
+}
+
+void Resort(not_null<History*> history, const std::vector<PeerId> &order) {
+	const auto owner = &history->owner();
+	for (const auto &id : order) {
+		if (const auto pinnedHistory = owner->historyLoaded(id)) {
+			pinnedHistory->updateChatListSortPosition();
+		}
+	}
+}
+
 } // namespace
 
-int LocalPinIndex(not_null<const Dialogs::Entry*> entry) {
+int LocalPinIndex(
+		not_null<const Dialogs::Entry*> entry,
+		FilterId filterId) {
 	const auto history = entry->asHistory();
 	if (!history) {
 		return 0;
 	}
-	const auto &order = Order(&history->session());
-	const auto i = ranges::find(order, history->peer->id);
-	return (i != end(order)) ? int(i - begin(order)) + 1 : 0;
+	const auto order = OrderFor(&history->session(), filterId);
+	if (!order) {
+		return 0;
+	}
+	const auto i = ranges::find(*order, history->peer->id);
+	return (i != end(*order)) ? int(i - begin(*order)) + 1 : 0;
 }
 
-bool IsLocallyPinned(not_null<const Dialogs::Entry*> entry) {
-	return LocalPinIndex(entry) != 0;
+bool IsLocallyPinned(
+		not_null<const Dialogs::Entry*> entry,
+		FilterId filterId) {
+	return LocalPinIndex(entry, filterId) != 0;
 }
 
 bool IsPinnedInList(
 		not_null<const Dialogs::Entry*> entry,
 		FilterId filterId) {
 	return entry->isPinnedDialog(filterId)
-		|| (!filterId && IsLocallyPinned(entry));
+		|| IsLocallyPinned(entry, filterId);
 }
 
-void SetLocallyPinned(not_null<History*> history, bool pinned) {
+void SetLocallyPinned(
+		not_null<History*> history,
+		bool pinned,
+		FilterId filterId) {
 	const auto session = &history->session();
-	auto &order = Order(session);
+	auto &lists = AllLists(session);
+	auto &order = lists[filterId];
 	const auto peerId = history->peer->id;
 	const auto i = ranges::find(order, peerId);
 	if (pinned == (i != end(order))) {
+		if (order.empty()) {
+			lists.remove(filterId);
+		}
 		return;
 	} else if (pinned) {
 		order.insert(begin(order), peerId);
 	} else {
 		order.erase(i);
 	}
-	session->local().writeTelewhiteData(
-		Storage::TelewhiteData::LocalPins,
-		Serialize(session->userId(), order),
-		false);
-
 	const auto resort = order;
-	const auto owner = &history->owner();
-	for (const auto &id : resort) {
-		if (const auto pinnedHistory = owner->historyLoaded(id)) {
-			pinnedHistory->updateChatListSortPosition();
-		}
+	if (order.empty()) {
+		lists.remove(filterId);
 	}
+	Save(session);
+	Resort(history, resort);
 	if (!pinned) {
 		history->updateChatListSortPosition();
 	}
@@ -138,14 +205,51 @@ void SetLocallyPinned(not_null<History*> history, bool pinned) {
 
 bool PinLocallyOverLimit(
 		not_null<Window::SessionController*> controller,
-		not_null<History*> history) {
-	if (!Enabled(Mod::LocalPins)
-		|| int(Order(&history->session()).size()) >= kMaxLocalPins) {
+		not_null<History*> history,
+		FilterId filterId) {
+	if (!Enabled(Mod::LocalPins)) {
 		return false;
 	}
-	SetLocallyPinned(history, true);
+	const auto order = OrderFor(&history->session(), filterId);
+	if (order && int(order->size()) >= kMaxLocalPins) {
+		return false;
+	}
+	SetLocallyPinned(history, true, filterId);
 	controller->content()->dialogsToUp();
 	controller->showToast(tr::lng_telewhite_local_pin_toast(tr::now));
+	return true;
+}
+
+bool ReorderLocalPins(
+		FilterId filterId,
+		Dialogs::Key key1,
+		Dialogs::Key key2) {
+	const auto first = key1.entry();
+	const auto second = key2.entry();
+	const auto local1 = !first->isPinnedDialog(filterId)
+		&& IsLocallyPinned(first, filterId);
+	const auto local2 = !second->isPinnedDialog(filterId)
+		&& IsLocallyPinned(second, filterId);
+	if (!local1 && !local2) {
+		return false;
+	} else if (!local1 || !local2) {
+		return true;
+	}
+	const auto history1 = first->asHistory();
+	const auto history2 = second->asHistory();
+	if (!history1 || !history2) {
+		return true;
+	}
+	const auto session = &history1->session();
+	auto &order = AllLists(session)[filterId];
+	const auto a = ranges::find(order, history1->peer->id);
+	const auto b = ranges::find(order, history2->peer->id);
+	if (a == end(order) || b == end(order)) {
+		return true;
+	}
+	std::iter_swap(a, b);
+	Save(session);
+	Resort(history1, order);
 	return true;
 }
 
