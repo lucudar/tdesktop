@@ -2029,6 +2029,8 @@ PRIVATE
     telewhite/telewhite_local_pins.h
     telewhite/telewhite_location.cpp
     telewhite/telewhite_location.h
+    telewhite/telewhite_message_details.cpp
+    telewhite/telewhite_message_details.h
     telewhite/telewhite_mods.cpp
     telewhite/telewhite_mods.h
     telewhite/telewhite_mods_box.cpp
