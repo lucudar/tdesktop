@@ -58,6 +58,7 @@ enum class Mod {
 	NowPlayingYandex,
 	NowPlayingVk,
 	NowPlayingOther,
+	GhostReadOnReply,
 
 	kCount,
 };
