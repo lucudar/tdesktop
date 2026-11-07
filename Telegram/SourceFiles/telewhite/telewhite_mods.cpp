@@ -69,6 +69,8 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::GhostReadOnReply: return "telewhite-ghost-read-on-reply";
 	case Mod::TranslateBeforeSend: return "telewhite-translate-before-send";
 	case Mod::HidePremium: return "telewhite-hide-premium";
+	case Mod::PollResults: return "telewhite-poll-results";
+	case Mod::StickersWithoutSet: return "telewhite-stickers-without-set";
 	case Mod::kCount: break;
 	}
 	Unexpected("Mod in Telewhite::Key.");
