@@ -2020,6 +2020,8 @@ PRIVATE
     telewhite/telewhite_deleted.h
     telewhite/telewhite_edit_history.cpp
     telewhite/telewhite_edit_history.h
+    telewhite/telewhite_extras.cpp
+    telewhite/telewhite_extras.h
     telewhite/telewhite_ghost_read.cpp
     telewhite/telewhite_ghost_read.h
     telewhite/telewhite_icon.cpp
