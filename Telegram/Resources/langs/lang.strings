@@ -925,6 +925,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_telewhite_details_dimensions" = "Разрешение";
 "lng_telewhite_details_duration" = "Длительность";
 "lng_telewhite_details_media_id" = "ID медиа";
+"lng_telewhite_mods_translate_before_send" = "Перевод перед отправкой";
+"lng_telewhite_mods_translate_send_to" = "Переводить на";
+"lng_telewhite_translate_field" = "Перевести на {language}";
+"lng_telewhite_translate_field_failed" = "Не удалось перевести текст. Попробуйте ещё раз или выберите другой переводчик.";
+"lng_telewhite_mods_hide_premium" = "Скрыть Premium, подарки и звёзды";
+"lng_telewhite_mods_plugins" = "Плагины";
+"lng_telewhite_mods_plugins_about" = "Все функции Telewhite на одной странице: у каждой — переключатель и описание. Те же переключатели есть и в разделах модов, они связаны.";
 
 "lng_settings_shortcuts" = "Keyboard shortcuts";
 
