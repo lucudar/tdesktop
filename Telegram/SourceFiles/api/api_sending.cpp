@@ -37,6 +37,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/file_upload.h"
 #include "mainwidget.h"
 #include "apiwrap.h"
+#include "telewhite/telewhite_extras.h"
 
 namespace Api {
 namespace {
@@ -693,6 +694,10 @@ void SendExistingDocument(
 		MessageToSend &&message,
 		not_null<DocumentData*> document,
 		std::optional<MsgId> localMessageId) {
+	if (!localMessageId
+		&& Telewhite::SendStickerWithoutSet(document, message.action)) {
+		return;
+	}
 	const auto inputMedia = [=] {
 		return MTP_inputMediaDocument(
 			MTP_flags(message.action.options.mediaSpoiler
