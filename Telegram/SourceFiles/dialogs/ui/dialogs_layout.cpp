@@ -79,7 +79,7 @@ const auto kPsaBadgePrefix = "cloud_lng_badge_psa_";
 		FilterId filter) {
 	return (entry->isPinnedDialog(filter)
 			&& (filter || !entry->fixedOnTopIndex()))
-		|| (!filter && Telewhite::IsLocallyPinned(entry));
+		|| Telewhite::IsLocallyPinned(entry, filter);
 }
 
 [[nodiscard]] bool ShowSendActionInDialogs(Data::Thread *thread) {
