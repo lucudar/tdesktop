@@ -199,12 +199,18 @@ void LoadMods(not_null<Core::Settings*> settings) {
 		const auto value = serialized.toInt(&ok);
 		options[i] = ok ? value : DefaultValue(option);
 	}
+
+	// "Now playing" is hidden for now: keep it off, so the previous
+	// "About" text is restored and nothing changes it without a toggle.
+	values[int(Mod::NowPlaying)] = false;
 }
 
 bool CountedInBanner(Mod mod) {
 	switch (mod) {
-	case Mod::StreamerMode:
 	case Mod::NowPlaying:
+		// The music group is hidden for now.
+		return false;
+	case Mod::StreamerMode:
 		// Streamer mode and players are supported only on Windows.
 		return Platform::IsWindows();
 	case Mod::ThemedIcon:
