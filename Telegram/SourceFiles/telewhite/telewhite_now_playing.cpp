@@ -13,10 +13,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "data/data_changes.h"
+#include "data/data_document.h"
+#include "data/data_file_origin.h"
+#include "data/data_media_types.h"
+#include "data/data_saved_music.h"
 #include "data/data_premium_limits.h"
 #include "data/data_session.h"
 #include "data/data_user.h"
 #include "lang/lang_keys.h"
+#include "history/history_item.h"
 #include "main/main_session.h"
 #include "mtproto/sender.h"
 #include "telewhite/telewhite_mods.h"
@@ -62,6 +67,7 @@ struct Filter {
 	bool spotify = false;
 	bool yandex = false;
 	bool vk = false;
+	bool soundcloud = false;
 	bool other = false;
 };
 
@@ -72,6 +78,8 @@ struct Filter {
 		return Source::None;
 	} else if (lower.contains(u"spotify"_q)) {
 		return Source::Spotify;
+	} else if (lower.contains(u"soundcloud"_q)) {
+		return Source::SoundCloud;
 	}
 	const auto music = lower.contains(u"music"_q)
 		|| lower.contains(u"музык"_q);
@@ -90,6 +98,7 @@ struct Filter {
 		.spotify = Enabled(Mod::NowPlayingSpotify),
 		.yandex = Enabled(Mod::NowPlayingYandex),
 		.vk = Enabled(Mod::NowPlayingVk),
+		.soundcloud = Enabled(Mod::NowPlayingSoundCloud),
 		.other = Enabled(Mod::NowPlayingOther),
 	};
 }
@@ -99,6 +108,7 @@ struct Filter {
 	case Source::Spotify: return filter.spotify;
 	case Source::Yandex: return filter.yandex;
 	case Source::Vk: return filter.vk;
+	case Source::SoundCloud: return filter.soundcloud;
 	case Source::Other: return filter.other;
 	case Source::None: return false;
 	}
@@ -371,7 +381,8 @@ Watcher::Watcher()
 		EnabledValue(Mod::NowPlayingSpotify) | rpl::skip(1) | rpl::to_empty,
 		EnabledValue(Mod::NowPlayingYandex) | rpl::skip(1) | rpl::to_empty,
 		EnabledValue(Mod::NowPlayingVk) | rpl::skip(1) | rpl::to_empty,
-		EnabledValue(Mod::NowPlayingOther) | rpl::skip(1) | rpl::to_empty
+		EnabledValue(Mod::NowPlayingOther) | rpl::skip(1) | rpl::to_empty,
+		EnabledValue(Mod::NowPlayingSoundCloud) | rpl::skip(1) | rpl::to_empty
 	) | rpl::on_next([=] {
 		refresh();
 	}, _lifetime);
@@ -461,9 +472,10 @@ Bio::Bio(not_null<Main::Session*> session)
 
 	rpl::combine(
 		EnabledValue(Mod::NowPlaying),
+		EnabledValue(Mod::NowPlayingBio),
 		TrackValue()
-	) | rpl::on_next([=](bool enabled, const Track &track) {
-		if (!enabled) {
+	) | rpl::on_next([=](bool enabled, bool bio, const Track &track) {
+		if (!enabled || !bio) {
 			setTarget(QString(), 0);
 		} else if (!track.empty()) {
 			_source = track.source;
@@ -674,6 +686,265 @@ int Bio::limit() const {
 	return std::max(full - _shrink, kMinLimit);
 }
 
+// The track also goes to the "Music" block of the profile: the same song is
+// found among the audio files of public channels and saved first in
+// "My music" while it plays, then removed again.
+class ProfileMusic final : public base::has_weak_ptr {
+public:
+	explicit ProfileMusic(not_null<Main::Session*> session);
+
+private:
+	void apply();
+	void search(const Track &track);
+	void show(not_null<DocumentData*> document, Data::FileOrigin origin);
+	void clearAdded();
+	void cleanupStale();
+
+	const not_null<Main::Session*> _session;
+	MTP::Sender _api;
+	base::Timer _timer;
+	Track _wanted;
+	Track _shown;
+	DocumentData *_added = nullptr;
+	DocumentId _stale = 0;
+	mtpRequestId _requestId = 0;
+	crl::time _nextAllowed = 0;
+	rpl::lifetime _lifetime;
+
+};
+
+constexpr auto kMusicSearchLimit = 20;
+
+[[nodiscard]] std::string MusicKey(not_null<Main::Session*> session) {
+	return "telewhite-now-playing-music-"
+		+ std::to_string(session->uniqueId());
+}
+
+void WriteMusicPending(not_null<Main::Session*> session, DocumentId id) {
+	Core::App().settings().writePref<QByteArray>(
+		MusicKey(session),
+		id ? QByteArray::number(qulonglong(id)) : QByteArray());
+	Core::App().saveSettingsDelayed();
+}
+
+[[nodiscard]] QString NormalizedForMatch(const QString &text) {
+	auto result = text.toLower();
+	result.remove(QRegularExpression(u"[^\\p{L}\\p{N}]"_q));
+	return result;
+}
+
+[[nodiscard]] bool SongMatches(
+		not_null<DocumentData*> document,
+		const Track &track) {
+	const auto song = document->song();
+	if (!song) {
+		return false;
+	}
+	const auto title = NormalizedForMatch(song->title);
+	const auto wanted = NormalizedForMatch(track.title);
+	if (title.isEmpty()
+		|| wanted.isEmpty()
+		|| (!title.contains(wanted) && !wanted.contains(title))) {
+		return false;
+	}
+	const auto artists = track.artist.split(
+		QRegularExpression(u"[,&]|\\sfeat\\.?\\s|\\sft\\.?\\s"_q),
+		Qt::SkipEmptyParts);
+	if (artists.isEmpty()) {
+		return true;
+	}
+	const auto performer = NormalizedForMatch(song->performer);
+	const auto first = NormalizedForMatch(artists.front());
+	return !performer.isEmpty()
+		&& !first.isEmpty()
+		&& (performer.contains(first) || first.contains(performer));
+}
+
+ProfileMusic::ProfileMusic(not_null<Main::Session*> session)
+: _session(session)
+, _api(&session->mtp())
+, _timer([=] { apply(); })
+, _stale(Core::App().settings().readPref<QByteArray>(
+	MusicKey(session)).toULongLong()) {
+	auto &music = _session->data().savedMusic();
+	music.loadIds();
+	if (_stale) {
+		// The application was closed while a track was shown.
+		const auto self = _session->userPeerId();
+		music.changed(
+		) | rpl::filter([=](PeerId peerId) {
+			return (peerId == self);
+		}) | rpl::on_next([=] {
+			cleanupStale();
+		}, _lifetime);
+		music.loadMore(self);
+	}
+
+	rpl::combine(
+		EnabledValue(Mod::NowPlaying),
+		EnabledValue(Mod::NowPlayingProfile),
+		TrackValue()
+	) | rpl::on_next([=](bool enabled, bool profile, const Track &track) {
+		const auto on = enabled && profile;
+		const auto wanted = (on && !track.empty() && SourceEnabled(track.source))
+			? track
+			: Track();
+		if (wanted == _wanted) {
+			return;
+		}
+		_wanted = wanted;
+		_timer.callOnce(!wanted.empty()
+			? kApplyDelay
+			: on
+			? kRestoreDelay
+			: 0);
+	}, _lifetime);
+}
+
+void ProfileMusic::apply() {
+	if (_wanted == _shown || _requestId) {
+		return;
+	}
+	const auto now = crl::now();
+	if (_wanted.empty()) {
+		clearAdded();
+		_shown = Track();
+		return;
+	} else if (now < _nextAllowed) {
+		_timer.callOnce(_nextAllowed - now);
+		return;
+	}
+	search(_wanted);
+}
+
+void ProfileMusic::search(const Track &track) {
+	const auto query = track.artist.isEmpty()
+		? track.title
+		: (track.artist + QChar(' ') + track.title);
+	using Flag = MTPmessages_SearchGlobal::Flag;
+	_requestId = _api.request(MTPmessages_SearchGlobal(
+		MTP_flags(Flag::f_broadcasts_only),
+		MTP_int(0),
+		MTPInputChannel(),
+		MTP_string(query),
+		MTP_inputMessagesFilterMusic(),
+		MTP_int(0),
+		MTP_int(0),
+		MTP_int(0),
+		MTP_inputPeerEmpty(),
+		MTP_int(0),
+		MTP_int(kMusicSearchLimit)
+	)).done([=](const MTPmessages_Messages &result) {
+		_requestId = 0;
+		_shown = track;
+		_nextAllowed = crl::now() + kMinInterval;
+		const auto owner = &_session->data();
+		auto found = std::optional<
+			std::pair<not_null<DocumentData*>, FullMsgId>>();
+		const auto parse = [&](
+				const MTPVector<MTPMessage> &messages,
+				const MTPVector<MTPUser> &users,
+				const MTPVector<MTPChat> &chats) {
+			owner->processUsers(users);
+			owner->processChats(chats);
+			for (const auto &message : messages.v) {
+				if (found) {
+					break;
+				}
+				message.match([&](const MTPDmessage &data) {
+					const auto media = data.vmedia();
+					if (!media) {
+						return;
+					}
+					media->match([&](const MTPDmessageMediaDocument &media) {
+						const auto document = media.vdocument();
+						if (!document) {
+							return;
+						}
+						const auto parsed = owner->processDocument(*document);
+						if (SongMatches(parsed, track)) {
+							found.emplace(
+								parsed,
+								FullMsgId(
+									peerFromMTP(data.vpeer_id()),
+									MsgId(data.vid().v)));
+						}
+					}, [](const auto &) {});
+				}, [](const auto &) {});
+			}
+		};
+		result.match([](const MTPDmessages_messagesNotModified &) {
+		}, [&](const auto &data) {
+			parse(data.vmessages(), data.vusers(), data.vchats());
+		});
+		if (found) {
+			show(found->first, Data::FileOriginMessage(found->second));
+		} else {
+			// Not found in Telegram: better nothing than a wrong song.
+			clearAdded();
+		}
+		if (_wanted != _shown) {
+			_timer.callOnce(kApplyDelay);
+		}
+	}).fail([=] {
+		_requestId = 0;
+		_shown = track;
+		_nextAllowed = crl::now() + kFailRetry;
+	}).send();
+}
+
+void ProfileMusic::show(
+		not_null<DocumentData*> document,
+		Data::FileOrigin origin) {
+	if (_added == document.get()) {
+		return;
+	}
+	clearAdded();
+	auto &music = _session->data().savedMusic();
+	if (music.has(document)) {
+		// Saved by the user himself, never removed by Telewhite.
+		return;
+	}
+	music.save(document, origin);
+	_added = document;
+	WriteMusicPending(_session, document->id);
+}
+
+void ProfileMusic::clearAdded() {
+	if (const auto document = base::take(_added)) {
+		_session->data().savedMusic().remove(document);
+		WriteMusicPending(_session, 0);
+	}
+}
+
+void ProfileMusic::cleanupStale() {
+	if (!_stale) {
+		return;
+	}
+	auto &music = _session->data().savedMusic();
+	const auto self = _session->userPeerId();
+	for (const auto &item : music.list(self)) {
+		const auto media = item->media();
+		const auto document = media ? media->document() : nullptr;
+		if (document && document->id == _stale) {
+			_stale = 0;
+			if (document != _added) {
+				music.remove(document);
+			}
+			if (!_added) {
+				WriteMusicPending(_session, 0);
+			}
+			return;
+		}
+	}
+	if (music.fullyLoaded(self)) {
+		_stale = 0;
+		if (!_added) {
+			WriteMusicPending(_session, 0);
+		}
+	}
+}
+
 } // namespace
 
 bool Supported() {
@@ -694,6 +965,7 @@ void Setup(rpl::lifetime &lifetime) {
 
 void Start(not_null<Main::Session*> session) {
 	session->lifetime().make_state<Bio>(session);
+	session->lifetime().make_state<ProfileMusic>(session);
 }
 
 bool IsQuitPrevent(not_null<Main::Session*> session) {
@@ -748,6 +1020,8 @@ QString SourceName(Source source) {
 	case Source::Yandex:
 		return tr::lng_telewhite_mods_now_playing_yandex(tr::now);
 	case Source::Vk: return tr::lng_telewhite_mods_now_playing_vk(tr::now);
+	case Source::SoundCloud:
+		return tr::lng_telewhite_mods_now_playing_soundcloud(tr::now);
 	case Source::Other:
 	case Source::None: break;
 	}
