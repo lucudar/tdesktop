@@ -500,6 +500,16 @@ rpl::event_stream<> ExcludedFoldersChanges;
 			result.back().shown = EnabledValue(Mod::NowPlaying);
 		};
 		source(
+			u"profile"_q,
+			&tr::lng_telewhite_mods_now_playing_profile,
+			Mod::NowPlayingProfile,
+			{ u"профиль"_q, u"моя музыка"_q, u"profile"_q });
+		source(
+			u"bio"_q,
+			&tr::lng_telewhite_mods_now_playing_bio,
+			Mod::NowPlayingBio,
+			{ u"о себе"_q, u"bio"_q });
+		source(
 			u"spotify"_q,
 			&tr::lng_telewhite_mods_now_playing_spotify,
 			Mod::NowPlayingSpotify,
@@ -514,6 +524,11 @@ rpl::event_stream<> ExcludedFoldersChanges;
 			&tr::lng_telewhite_mods_now_playing_vk,
 			Mod::NowPlayingVk,
 			{ u"вк"_q, u"vk"_q, u"вконтакте"_q });
+		source(
+			u"soundcloud"_q,
+			&tr::lng_telewhite_mods_now_playing_soundcloud,
+			Mod::NowPlayingSoundCloud,
+			{ u"soundcloud"_q, u"саундклауд"_q });
 		source(
 			u"other"_q,
 			&tr::lng_telewhite_mods_now_playing_other,
@@ -622,11 +637,8 @@ rpl::event_stream<> ExcludedFoldersChanges;
 
 [[nodiscard]] bool GroupShown(Group group) {
 	// Streamer mode and players are supported only on Windows.
-	if (group == Group::Music) {
-		// "Now playing" is hidden for now.
-		return false;
-	}
-	return (group != Group::Streamer) || Platform::IsWindows();
+	return (group != Group::Streamer && group != Group::Music)
+		|| Platform::IsWindows();
 }
 
 // Small round "?" button near the toggle, opens the "how it works" box.
