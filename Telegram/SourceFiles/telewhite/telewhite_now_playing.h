@@ -19,6 +19,7 @@ enum class Source {
 	Spotify,
 	Yandex,
 	Vk,
+	SoundCloud,
 	Other,
 };
 
