@@ -793,8 +793,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_telewhite_mods_now_playing_spotify" = "Spotify";
 "lng_telewhite_mods_now_playing_yandex" = "Яндекс Музыка";
 "lng_telewhite_mods_now_playing_vk" = "VK Музыка";
+"lng_telewhite_mods_now_playing_soundcloud" = "SoundCloud";
+"lng_telewhite_mods_now_playing_profile" = "В профиле — блоком «Музыка»";
+"lng_telewhite_mods_now_playing_bio" = "В «О себе» — текстом";
 "lng_telewhite_mods_now_playing_other" = "Другие плееры и браузеры";
-"lng_telewhite_mods_music_about" = "Пока играет трек, в «О себе» вашего профиля стоит «🎧 Исполнитель — Название». Музыка на паузе дольше минуты, функция выключена или Telewhite закрыт — прежний текст вернётся. Если вы сами измените «О себе», Telewhite оставит ваш текст. Его видят те, кому это разрешено настройками конфиденциальности, а трек меняется не чаще двух раз в минуту.";
+"lng_telewhite_mods_music_about" = "Пока играет трек, Telewhite показывает его в профиле. Блок «Музыка»: этот трек находится среди аудио в каналах Telegram и стоит первым в «Моя музыка» (если его там нет, блок не меняется). «О себе»: текст «🎧 Исполнитель — Название». На паузе дольше минуты и при выключении всё возвращается как было. SoundCloud, Яндекс и VK в браузере — через «Другие плееры и браузеры».";
 "lng_telewhite_mods_music_now" = "Сейчас играет";
 "lng_telewhite_mods_music_nothing" = "Ничего не играет";
 "lng_telewhite_mods_music_blocked" = "Играет в «{app}», но этот источник выключен";
