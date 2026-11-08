@@ -63,6 +63,9 @@ enum class Mod {
 	HidePremium,
 	PollResults,
 	StickersWithoutSet,
+	NowPlayingBio,
+	NowPlayingProfile,
+	NowPlayingSoundCloud,
 
 	kCount,
 };
