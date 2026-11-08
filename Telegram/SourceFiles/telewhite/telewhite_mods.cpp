@@ -71,6 +71,9 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::HidePremium: return "telewhite-hide-premium";
 	case Mod::PollResults: return "telewhite-poll-results";
 	case Mod::StickersWithoutSet: return "telewhite-stickers-without-set";
+	case Mod::NowPlayingBio: return "telewhite-now-playing-bio";
+	case Mod::NowPlayingProfile: return "telewhite-now-playing-profile";
+	case Mod::NowPlayingSoundCloud: return "telewhite-now-playing-soundcloud";
 	case Mod::kCount: break;
 	}
 	Unexpected("Mod in Telewhite::Key.");
@@ -83,6 +86,9 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::NowPlayingSpotify:
 	case Mod::NowPlayingYandex:
 	case Mod::NowPlayingVk:
+	case Mod::NowPlayingBio:
+	case Mod::NowPlayingProfile:
+	case Mod::NowPlayingSoundCloud:
 	case Mod::GhostReadOnReply: return true;
 	default: return false;
 	}
@@ -200,17 +206,12 @@ void LoadMods(not_null<Core::Settings*> settings) {
 		options[i] = ok ? value : DefaultValue(option);
 	}
 
-	// "Now playing" is hidden for now: keep it off, so the previous
-	// "About" text is restored and nothing changes it without a toggle.
-	values[int(Mod::NowPlaying)] = false;
 }
 
 bool CountedInBanner(Mod mod) {
 	switch (mod) {
-	case Mod::NowPlaying:
-		// The music group is hidden for now.
-		return false;
 	case Mod::StreamerMode:
+	case Mod::NowPlaying:
 		// Streamer mode and players are supported only on Windows.
 		return Platform::IsWindows();
 	case Mod::ThemedIcon:
@@ -225,6 +226,9 @@ bool CountedInBanner(Mod mod) {
 	case Mod::NowPlayingYandex:
 	case Mod::NowPlayingVk:
 	case Mod::NowPlayingOther:
+	case Mod::NowPlayingBio:
+	case Mod::NowPlayingProfile:
+	case Mod::NowPlayingSoundCloud:
 	case Mod::GhostReadOnReply: return false;
 	default: return true;
 	}
