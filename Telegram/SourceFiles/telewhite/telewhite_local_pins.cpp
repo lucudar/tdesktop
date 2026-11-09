@@ -6,6 +6,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "telewhite/telewhite_local_pins.h"
 
+#include "apiwrap.h"
+#include "data/data_channel.h"
 #include "data/data_peer_id.h"
 #include "data/data_session.h"
 #include "dialogs/dialogs_entry.h"
@@ -251,6 +253,60 @@ bool ReorderLocalPins(
 	Save(session);
 	Resort(history1, order);
 	return true;
+}
+
+namespace {
+
+void PromoteLocalPins(not_null<Main::Session*> session) {
+	if (!Enabled(Mod::LocalPins)) {
+		return;
+	}
+	const auto &lists = AllLists(session);
+	const auto i = lists.find(FilterId());
+	if (i == end(lists)) {
+		return;
+	}
+	const auto owner = &session->data();
+	const auto order = i->second; // SetLocallyPinned() changes the list.
+	for (const auto &peerId : order) {
+		const auto history = owner->historyLoaded(peerId);
+		if (!history || !history->folderKnown()) {
+			continue;
+		} else if (history->isPinnedDialog(FilterId())) {
+			SetLocallyPinned(history, false);
+			continue;
+		} else if (!owner->pinnedCanPin(history)) {
+			continue;
+		}
+		SetLocallyPinned(history, false);
+		owner->setChatPinned(history, FilterId(), true);
+		const auto channel = history->peer->asChannel();
+		const auto peer = (channel && channel->isCommunity())
+			? MTP_inputDialogPeerCommunity(channel->inputChannel())
+			: MTP_inputDialogPeer(history->peer->input());
+		session->api().request(MTPmessages_ToggleDialogPin(
+			MTP_flags(MTPmessages_ToggleDialogPin::Flag::f_pinned),
+			peer
+		)).done([=] {
+			owner->notifyPinnedDialogsOrderUpdated();
+		}).fail([=] {
+			// The server has no room after all: keep it pinned locally.
+			owner->setChatPinned(history, FilterId(), false);
+			SetLocallyPinned(history, true);
+		}).send();
+	}
+}
+
+} // namespace
+
+void SetupLocalPins(not_null<Main::Session*> session) {
+	const auto owner = &session->data();
+	rpl::merge(
+		owner->pinnedDialogsOrderUpdated(),
+		owner->chatsListLoadedEvents() | rpl::to_empty
+	) | rpl::on_next([=] {
+		PromoteLocalPins(session);
+	}, session->lifetime());
 }
 
 } // namespace Telewhite
