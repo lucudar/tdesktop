@@ -145,6 +145,46 @@ void Resort(not_null<History*> history, const std::vector<PeerId> &order) {
 	}
 }
 
+[[nodiscard]] auto InFlight() -> base::flat_set<std::pair<uint64, uint64>> & {
+	static auto result = base::flat_set<std::pair<uint64, uint64>>();
+	return result;
+}
+
+// Telegram Desktop checks the pinned limit only on the client, the server
+// may still pin the chat: then it is a real pin, seen on all devices.
+void ServerPin(
+		not_null<History*> history,
+		Fn<void()> done,
+		Fn<void()> fail) {
+	const auto key = std::make_pair(
+		history->session().uniqueId(),
+		uint64(SerializePeerId(history->peer->id)));
+	if (InFlight().contains(key)) {
+		return;
+	}
+	InFlight().emplace(key);
+	const auto channel = history->peer->asChannel();
+	const auto peer = (channel && channel->isCommunity())
+		? MTP_inputDialogPeerCommunity(channel->inputChannel())
+		: MTP_inputDialogPeer(history->peer->input());
+	history->session().api().request(MTPmessages_ToggleDialogPin(
+		MTP_flags(MTPmessages_ToggleDialogPin::Flag::f_pinned),
+		peer
+	)).done([=] {
+		InFlight().remove(key);
+		history->owner().setChatPinned(history, FilterId(), true);
+		history->owner().notifyPinnedDialogsOrderUpdated();
+		if (done) {
+			done();
+		}
+	}).fail([=] {
+		InFlight().remove(key);
+		if (fail) {
+			fail();
+		}
+	}).send();
+}
+
 } // namespace
 
 int LocalPinIndex(
@@ -216,9 +256,25 @@ bool PinLocallyOverLimit(
 	if (order && int(order->size()) >= kMaxLocalPins) {
 		return false;
 	}
-	SetLocallyPinned(history, true, filterId);
-	controller->content()->dialogsToUp();
-	controller->showToast(tr::lng_telewhite_local_pin_toast(tr::now));
+	if (filterId) {
+		SetLocallyPinned(history, true, filterId);
+		controller->content()->dialogsToUp();
+		controller->showToast(tr::lng_telewhite_local_pin_toast(tr::now));
+		return true;
+	}
+	const auto weak = base::make_weak(controller);
+	ServerPin(history, [=] {
+		if (const auto strong = weak.get()) {
+			strong->content()->dialogsToUp();
+			strong->showToast(tr::lng_telewhite_server_pin_toast(tr::now));
+		}
+	}, [=] {
+		SetLocallyPinned(history, true);
+		if (const auto strong = weak.get()) {
+			strong->content()->dialogsToUp();
+			strong->showToast(tr::lng_telewhite_local_pin_toast(tr::now));
+		}
+	});
 	return true;
 }
 
@@ -257,7 +313,7 @@ bool ReorderLocalPins(
 
 namespace {
 
-void PromoteLocalPins(not_null<Main::Session*> session) {
+void PromoteLocalPins(not_null<Main::Session*> session, bool force) {
 	if (!Enabled(Mod::LocalPins)) {
 		return;
 	}
@@ -275,25 +331,12 @@ void PromoteLocalPins(not_null<Main::Session*> session) {
 		} else if (history->isPinnedDialog(FilterId())) {
 			SetLocallyPinned(history, false);
 			continue;
-		} else if (!owner->pinnedCanPin(history)) {
+		} else if (!force && !owner->pinnedCanPin(history)) {
 			continue;
 		}
-		SetLocallyPinned(history, false);
-		owner->setChatPinned(history, FilterId(), true);
-		const auto channel = history->peer->asChannel();
-		const auto peer = (channel && channel->isCommunity())
-			? MTP_inputDialogPeerCommunity(channel->inputChannel())
-			: MTP_inputDialogPeer(history->peer->input());
-		session->api().request(MTPmessages_ToggleDialogPin(
-			MTP_flags(MTPmessages_ToggleDialogPin::Flag::f_pinned),
-			peer
-		)).done([=] {
-			owner->notifyPinnedDialogsOrderUpdated();
-		}).fail([=] {
-			// The server has no room after all: keep it pinned locally.
-			owner->setChatPinned(history, FilterId(), false);
-			SetLocallyPinned(history, true);
-		}).send();
+		ServerPin(history, [=] {
+			SetLocallyPinned(history, false);
+		}, nullptr);
 	}
 }
 
@@ -301,11 +344,20 @@ void PromoteLocalPins(not_null<Main::Session*> session) {
 
 void SetupLocalPins(not_null<Main::Session*> session) {
 	const auto owner = &session->data();
+	// Once the chats are loaded every local pin is tried on the server,
+	// later only while Telegram itself has room for more pinned chats.
 	rpl::merge(
-		owner->pinnedDialogsOrderUpdated(),
-		owner->chatsListLoadedEvents() | rpl::to_empty
-	) | rpl::on_next([=] {
-		PromoteLocalPins(session);
+		owner->pinnedDialogsOrderUpdated() | rpl::map([] {
+			return false;
+		}),
+		owner->chatsListLoadedEvents(
+		) | rpl::filter([](Data::Folder *folder) {
+			return !folder;
+		}) | rpl::map([] {
+			return true;
+		})
+	) | rpl::on_next([=](bool force) {
+		PromoteLocalPins(session, force);
 	}, session->lifetime());
 }
 
