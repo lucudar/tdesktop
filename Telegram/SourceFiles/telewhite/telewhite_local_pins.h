@@ -18,6 +18,10 @@ namespace Window {
 class SessionController;
 } // namespace Window
 
+namespace Main {
+class Session;
+} // namespace Main
+
 namespace Telewhite {
 
 // Chats pinned only on this computer: over the server limit, separately for
@@ -49,5 +53,10 @@ void SetLocallyPinned(
 	FilterId filterId,
 	Dialogs::Key key1,
 	Dialogs::Key key2);
+
+
+// While Telegram has room for more pinned chats, local pins of the main list
+// and the archive become real pins: then they are seen on all devices.
+void SetupLocalPins(not_null<Main::Session*> session);
 
 } // namespace Telewhite
