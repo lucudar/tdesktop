@@ -778,6 +778,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_telewhite_mods_premium" = "Локальный премиум";
 "lng_telewhite_mods_local_pins" = "Закреплять чаты сверх лимита";
 "lng_telewhite_local_pin_toast" = "Чат закреплён только на этом компьютере: лимит закрепов Telegram исчерпан.";
+"lng_telewhite_server_pin_toast" = "Закреплено сверх лимита — чат виден закреплённым на всех устройствах.";
 "lng_telewhite_mods_clean" = "Чистый интерфейс";
 "lng_telewhite_mods_hide_sponsored" = "Скрыть рекламу в каналах";
 "lng_telewhite_mods_hide_emoji_status" = "Скрыть эмодзи-статусы";
