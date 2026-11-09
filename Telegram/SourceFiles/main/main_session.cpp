@@ -62,6 +62,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "core/application.h"
 #include "tgw/tgw_storage.h"
+#include "telewhite/telewhite_local_pins.h"
 #include "telewhite/telewhite_now_playing.h"
 #include "ui/text/text_utilities.h"
 #include "ui/layers/generic_box.h"
@@ -276,6 +277,7 @@ Session::Session(
 	Core::App().downloadManager().trackSession(this);
 	Tgw::StartStorage(this);
 	Telewhite::NowPlaying::Start(this);
+	Telewhite::SetupLocalPins(this);
 
 	appConfig().value(
 	) | rpl::on_next([=] {
