@@ -203,6 +203,31 @@ void SetLocallyPinned(
 	}
 }
 
+void ForgetLocalPin(
+		not_null<Dialogs::Entry*> entry,
+		FilterId filterId) {
+	const auto history = entry->asHistory();
+	if (!history) {
+		return;
+	}
+	const auto session = &history->session();
+	auto &lists = AllLists(session);
+	const auto i = lists.find(filterId);
+	if (i == end(lists)) {
+		return;
+	}
+	auto &order = i->second;
+	const auto j = ranges::find(order, history->peer->id);
+	if (j == end(order)) {
+		return;
+	}
+	order.erase(j);
+	if (order.empty()) {
+		lists.remove(filterId);
+	}
+	Save(session);
+}
+
 bool PinLocallyOverLimit(
 		not_null<Window::SessionController*> controller,
 		not_null<History*> history,
