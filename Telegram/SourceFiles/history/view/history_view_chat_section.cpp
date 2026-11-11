@@ -31,6 +31,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_self_forwards_tagger.h"
 #include "history/view/history_view_draw_to_reply.h"
 #include "history/history.h"
+#include "telewhite/telewhite_tweaks.h"
 #include "history/history_drag_area.h"
 #include "history/history_inner_widget.h"
 #include "history/history_item_components.h"
@@ -2345,6 +2346,7 @@ Api::SendAction ChatWidget::prepareSendAction(
 		Api::SendOptions options) const {
 	auto result = Api::SendAction(_history, options);
 	result.replyTo = replyTo();
+	Telewhite::ApplyGhostSchedule(result);
 
 	if (mode() == Mode::History) {
 		if (const auto forum = _history->asForum()) {
