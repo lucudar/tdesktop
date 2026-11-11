@@ -212,6 +212,7 @@ void LoadMods(not_null<Core::Settings*> settings) {
 
 bool Removed(Mod mod) {
 	switch (mod) {
+	case Mod::LocalPins: // Unlimited pins are always on now.
 	case Mod::NowPlaying:
 	case Mod::NowPlayingSpotify:
 	case Mod::NowPlayingYandex:
