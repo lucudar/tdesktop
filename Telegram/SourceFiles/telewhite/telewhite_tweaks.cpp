@@ -6,10 +6,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "telewhite/telewhite_tweaks.h"
 
+#include "api/api_common.h"
+#include "base/unixtime.h"
 #include "data/data_changes.h"
 #include "data/data_peer.h"
 #include "data/data_peer_values.h"
 #include "data/data_user.h"
+#include "history/history.h"
 #include "main/main_session.h"
 #include "telewhite/telewhite_mods.h"
 #include "ui/effects/outline_segments.h"
@@ -196,6 +199,33 @@ void SetupStoryRings(rpl::lifetime &lifetime) {
 		OptionValue(Option::StoryRingColor) | rpl::to_empty,
 		style::PaletteChanged()
 	) | rpl::on_next(apply, lifetime);
+}
+
+void ApplyGhostSchedule(Api::SendAction &action) {
+	// Telegram doesn't accept the schedule date too close to now.
+	constexpr auto kDelay = TimeId(12);
+	if (!Enabled(Mod::GhostOnline) || !Enabled(Mod::GhostScheduled)) {
+		return;
+	}
+	const auto &options = action.options;
+	if (options.scheduled
+		|| options.shortcutId
+		|| options.price
+		|| options.starsApproved
+		|| options.suggest.exists
+		|| action.replaceMediaOf) {
+		return;
+	}
+	const auto peer = action.history->peer;
+	if (peer->isSelf()
+		|| peer->isBot()
+		|| peer->isMonoforum()
+		|| peer->isRepliesChat()
+		|| peer->isVerifyCodes()
+		|| peer->starsPerMessageChecked() > 0) {
+		return;
+	}
+	action.options.scheduled = base::unixtime::now() + kDelay;
 }
 
 } // namespace Telewhite
