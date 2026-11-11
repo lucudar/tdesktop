@@ -74,6 +74,7 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::NowPlayingBio: return "telewhite-now-playing-bio";
 	case Mod::NowPlayingProfile: return "telewhite-now-playing-profile";
 	case Mod::NowPlayingSoundCloud: return "telewhite-now-playing-soundcloud";
+	case Mod::GhostScheduled: return "telewhite-ghost-scheduled";
 	case Mod::kCount: break;
 	}
 	Unexpected("Mod in Telewhite::Key.");
@@ -193,9 +194,10 @@ constexpr auto kRegistrationPoints = std::array<RegistrationPoint, 33>{ {
 void LoadMods(not_null<Core::Settings*> settings) {
 	auto &values = Values();
 	for (auto i = 0; i != kModsCount; ++i) {
-		values[i] = settings->readPref<bool>(
-			Key(Mod(i)),
-			DefaultValue(Mod(i)));
+		values[i] = !Removed(Mod(i))
+			&& settings->readPref<bool>(
+				Key(Mod(i)),
+				DefaultValue(Mod(i)));
 	}
 	auto &options = OptionValues();
 	for (auto i = 0; i != kOptionsCount; ++i) {
@@ -208,7 +210,27 @@ void LoadMods(not_null<Core::Settings*> settings) {
 
 }
 
+bool Removed(Mod mod) {
+	switch (mod) {
+	case Mod::NowPlaying:
+	case Mod::NowPlayingSpotify:
+	case Mod::NowPlayingYandex:
+	case Mod::NowPlayingVk:
+	case Mod::NowPlayingOther:
+	case Mod::NowPlayingBio:
+	case Mod::NowPlayingProfile:
+	case Mod::NowPlayingSoundCloud:
+	case Mod::FakeLocation:
+	case Mod::FakeLocationAuto:
+	case Mod::FakeLocationWalk: return true;
+	default: return false;
+	}
+}
+
 bool CountedInBanner(Mod mod) {
+	if (Removed(mod)) {
+		return false;
+	}
 	switch (mod) {
 	case Mod::StreamerMode:
 	case Mod::NowPlaying:
@@ -229,6 +251,7 @@ bool CountedInBanner(Mod mod) {
 	case Mod::NowPlayingBio:
 	case Mod::NowPlayingProfile:
 	case Mod::NowPlayingSoundCloud:
+	case Mod::GhostScheduled:
 	case Mod::GhostReadOnReply: return false;
 	default: return true;
 	}
@@ -272,6 +295,9 @@ rpl::producer<bool> EnabledValue(Mod mod) {
 }
 
 void SetEnabled(Mod mod, bool enabled) {
+	if (Removed(mod)) {
+		enabled = false;
+	}
 	Values()[int(mod)] = enabled;
 	Core::App().settings().writePref<bool>(Key(mod), enabled);
 	Core::App().saveSettingsDelayed();
