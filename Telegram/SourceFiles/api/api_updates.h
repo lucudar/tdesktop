@@ -52,6 +52,11 @@ public:
 	crl::time lastSetOnline() const;
 	bool isQuitPrevent();
 
+	// Telewhite: in ghost mode report "offline" right after an action
+	// that makes the server show us online, like sending a message.
+	void ghostOfflineAfterAction();
+	void sendGhostOffline();
+
 	bool updateAndApply(int32 pts, int32 ptsCount, const MTPUpdates &updates);
 	bool updateAndApply(int32 pts, int32 ptsCount, const MTPUpdate &update);
 	bool updateAndApply(int32 pts, int32 ptsCount);
@@ -216,6 +221,11 @@ private:
 	crl::time _lastSetOnline = 0;
 	bool _lastWasOnline = false;
 	rpl::variable<bool> _isIdle = false;
+
+	base::Timer _ghostOfflineTimer;
+	crl::time _ghostActionAt = 0;
+	int _ghostOfflineRepeats = 0;
+	bool _ghostOfflineSent = false;
 
 	rpl::lifetime _lifetime;
 
