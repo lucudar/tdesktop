@@ -10,6 +10,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 class History;
 
+namespace Data {
+class Session;
+class Folder;
+} // namespace Data
+
+namespace Main {
+class Session;
+} // namespace Main
+
 namespace Dialogs {
 class Entry;
 } // namespace Dialogs
@@ -20,10 +29,43 @@ class SessionController;
 
 namespace Telewhite {
 
-// Chats pinned only on this computer: over the server limit, separately for
-// the main list (filter 0, also used by the archive) and each chat folder.
+// Unlimited pinned chats in "All chats" and in the archive, like Ghostgram.
+//
+// One pinned list per place - Telegram's own, shown and reordered by the chat
+// list as is. Its first pins (as many as the server allows this account) are
+// synchronized with the server, the rest is a local "tail" that only this
+// computer knows and never goes to the server. The tail is remembered per
+// account and list, so a server list that doesn't mention those chats can't
+// unpin them. Chat folders keep Telegram's behaviour.
 
-// 1-based position among chats pinned only on this computer, or 0.
+// The local ceiling of every list, far beyond any server limit.
+[[nodiscard]] int LocalPinsLimit();
+
+// The pinned order goes to the server: pins after the first serverLimit ones
+// are remembered as the local tail of this list.
+void SavePinnedTail(
+	not_null<Main::Session*> session,
+	Data::Folder *folder,
+	const std::vector<Dialogs::Key> &order,
+	int serverLimit);
+
+// The chat is pinned only on this computer in its current list.
+[[nodiscard]] bool IsPinnedTail(Dialogs::Key key);
+
+// Where to put a pin: a server pin goes right before the local tail,
+// a pin of the tail - by the remembered order of the tail.
+[[nodiscard]] int PinnedInsertPosition(
+	Dialogs::Key key,
+	const std::vector<Dialogs::Key> &order,
+	bool serverPin);
+
+// The server list was applied: puts the local tail back after it.
+void RestorePinnedTail(
+	not_null<Data::Session*> owner,
+	Data::Folder *folder);
+
+// The API of the old separate local pins, kept for its callers. Pins over
+// the server limit are regular pins of the list now, so these do nothing.
 [[nodiscard]] int LocalPinIndex(
 	not_null<const Dialogs::Entry*> entry,
 	FilterId filterId = FilterId());
@@ -37,23 +79,16 @@ void SetLocallyPinned(
 	not_null<History*> history,
 	bool pinned,
 	FilterId filterId = FilterId());
-
 [[nodiscard]] bool PinLocallyOverLimit(
 	not_null<Window::SessionController*> controller,
 	not_null<History*> history,
 	FilterId filterId = FilterId());
-
-// The chat got pinned on the server (here or from another device):
-// forget its local pin, otherwise it stays pinned after unpinning.
-void ForgetLocalPin(
-	not_null<Dialogs::Entry*> entry,
-	FilterId filterId);
-
-// Drag-n-drop of pinned chats: local pins are reordered among themselves,
-// a local pin never swaps with a server one. False for two server pins.
 [[nodiscard]] bool ReorderLocalPins(
 	FilterId filterId,
 	Dialogs::Key key1,
 	Dialogs::Key key2);
+void ForgetLocalPin(
+	not_null<Dialogs::Entry*> entry,
+	FilterId filterId);
 
 } // namespace Telewhite
