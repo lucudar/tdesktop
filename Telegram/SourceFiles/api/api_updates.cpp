@@ -237,6 +237,8 @@ bool HasForceLogoutNotification(const MTPUpdates &updates) {
 constexpr auto kGhostOfflineRepeatDelay = crl::time(3000);
 constexpr auto kGhostOfflineRepeats = 2;
 constexpr auto kGhostActionWindow = crl::time(15000);
+// Like AyuGram: the own status is checked every few seconds.
+constexpr auto kGhostWatchPeriod = crl::time(3000);
 
 } // namespace
 
@@ -258,16 +260,22 @@ Updates::Updates(not_null<Main::Session*> session)
 			_ghostOfflineTimer.callOnce(kGhostOfflineRepeatDelay);
 		}
 	});
+	_ghostWatchTimer.setCallback([=] { ghostCheck(); });
+	if (Telewhite::Enabled(Telewhite::Mod::GhostOnline)) {
+		_ghostWatchTimer.callEach(kGhostWatchPeriod);
+	}
 	Telewhite::EnabledValue(
 		Telewhite::Mod::GhostOnline
 	) | rpl::skip(1) | rpl::on_next([=](bool enabled) {
 		_ghostOfflineSent = false;
 		if (enabled) {
 			sendGhostOffline();
+			_ghostWatchTimer.callEach(kGhostWatchPeriod);
 		} else {
 			_ghostActionAt = 0;
 			_ghostOfflineRepeats = 0;
 			_ghostOfflineTimer.cancel();
+			_ghostWatchTimer.cancel();
 			updateOnline();
 		}
 	}, _lifetime);
@@ -1027,10 +1035,12 @@ void Updates::updateOnline(crl::time lastNonIdleTime, bool gotOtherOffline) {
 		Core::App().checkAutoLock(lastNonIdleTime);
 	});
 
-	if (Telewhite::Enabled(Telewhite::Mod::GhostOnline)
-		&& !_ghostOfflineSent) {
-		// The server may still show us online from before, fix it once.
-		sendGhostOffline();
+	if (Telewhite::Enabled(Telewhite::Mod::GhostOnline)) {
+		// The server may still show us online from before, or the window
+		// was just hidden right after an action - fix it.
+		if (!_ghostOfflineSent || ghostSelfOnline()) {
+			sendGhostOffline();
+		}
 	}
 	const auto &config = _session->serverConfig();
 	bool isOnline = Core::App().hasActiveWindow(&session())
@@ -1119,6 +1129,27 @@ crl::time Updates::lastSetOnline() const {
 }
 
 bool Updates::isQuitPrevent() {
+	if (Telewhite::Enabled(Telewhite::Mod::GhostOnline)) {
+		// Closed right after sending: make sure we don't stay online.
+		const auto recent = _ghostActionAt
+			&& (crl::now() - _ghostActionAt < kGhostActionWindow);
+		if (!recent && !ghostSelfOnline()) {
+			return false;
+		}
+		LOG(("Api::Updates prevents quit, sending ghost offline..."));
+		_ghostActionAt = 0;
+		_ghostOfflineTimer.cancel();
+		_ghostWatchTimer.cancel();
+		api().request(base::take(_onlineRequest)).cancel();
+		_onlineRequest = api().request(MTPaccount_UpdateStatus(
+			MTP_bool(true)
+		)).done([=] {
+			Core::App().quitPreventFinished();
+		}).fail([=] {
+			Core::App().quitPreventFinished();
+		}).send();
+		return true;
+	}
 	if (!_lastWasOnline) {
 		return false;
 	}
@@ -1149,6 +1180,29 @@ void Updates::sendGhostOffline() {
 	_onlineRequest = api().request(MTPaccount_UpdateStatus(
 		MTP_bool(true)
 	)).send();
+
+	// Show ourselves offline right away, the watchdog then reacts
+	// only to a new "online" from the server.
+	const auto self = session().user();
+	self->updateLastseen(Data::LastseenStatus::OnlineTill(
+		base::unixtime::now() - 1));
+	session().changes().peerUpdated(
+		self,
+		Data::PeerUpdate::Flag::OnlineStatus);
+}
+
+bool Updates::ghostSelfOnline() const {
+	return session().user()->lastseen().isOnline(base::unixtime::now());
+}
+
+void Updates::ghostCheck() {
+	if (!Telewhite::Enabled(Telewhite::Mod::GhostOnline)
+		|| Core::Quitting()) {
+		return;
+	}
+	if (ghostSelfOnline()) {
+		sendGhostOffline();
+	}
 }
 
 void Updates::handleSendActionUpdate(
@@ -2207,10 +2261,9 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 			} else if (d.vstatus().type() == mtpc_userStatusOnline) {
 				cSetOtherOnline(
 					d.vstatus().c_userStatusOnline().vexpires().v);
-				if (Telewhite::Enabled(Telewhite::Mod::GhostOnline)
-					&& _ghostActionAt
-					&& crl::now() - _ghostActionAt < kGhostActionWindow) {
-					// Our own message made us online, go back offline.
+				if (Telewhite::Enabled(Telewhite::Mod::GhostOnline)) {
+					// Something made us online (an action of ours, the server
+					// or another device) - go back offline right away.
 					sendGhostOffline();
 				}
 			}
