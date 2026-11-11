@@ -8,6 +8,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 class PeerData;
 
+namespace Api {
+struct SendAction;
+} // namespace Api
+
 namespace Main {
 class Session;
 } // namespace Main
@@ -20,6 +24,10 @@ namespace Telewhite {
 
 // "Anti-caps": a message typed in CAPS LOCK is sent in normal case.
 void ApplyAntiCaps(TextWithEntities &text);
+
+// Ghost mode: messages go as scheduled a few seconds ahead,
+// so the server never shows the sender online.
+void ApplyGhostSchedule(Api::SendAction &action);
 
 // Green dot on the userpic of an online author in groups.
 void PaintAuthorOnline(
