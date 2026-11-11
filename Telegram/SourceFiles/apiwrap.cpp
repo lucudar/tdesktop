@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 
 #include "telewhite/telewhite_ghost_read.h"
+#include "telewhite/telewhite_local_pins.h"
 #include "telewhite/telewhite_mods.h"
 #include "telewhite/telewhite_tweaks.h"
 #include "api/api_authorizations.h"
@@ -436,6 +437,12 @@ void ApiWrap::checkFilterInvite(
 
 void ApiWrap::savePinnedOrder(Data::Folder *folder) {
 	const auto &order = _session->data().pinnedChatsOrder(folder);
+	// Telewhite: only the first pins go to the server (the force flag
+	// makes it pin and unpin to match), the rest stay on this computer.
+	const auto serverLimit = std::max(
+		_session->data().pinnedChatsLimit(folder),
+		0);
+	Telewhite::SavePinnedTail(_session, folder, order, serverLimit);
 	const auto input = [](Dialogs::Key key) {
 		if (const auto history = key.history()) {
 			if (const auto channel = history->peer->asChannel()
@@ -448,12 +455,12 @@ void ApiWrap::savePinnedOrder(Data::Folder *folder) {
 		}
 		Unexpected("Key type in pinnedDialogsOrder().");
 	};
+	const auto count = std::min(int(order.size()), serverLimit);
 	auto peers = QVector<MTPInputDialogPeer>();
-	peers.reserve(order.size());
-	ranges::transform(
-		order,
-		ranges::back_inserter(peers),
-		input);
+	peers.reserve(count);
+	for (auto i = 0; i != count; ++i) {
+		peers.push_back(input(order[i]));
+	}
 	request(MTPmessages_ReorderPinnedDialogs(
 		MTP_flags(MTPmessages_ReorderPinnedDialogs::Flag::f_force),
 		MTP_int(folder ? folder->id() : 0),
