@@ -43,6 +43,12 @@ void SetLocallyPinned(
 	not_null<History*> history,
 	FilterId filterId = FilterId());
 
+// The chat got pinned on the server (here or from another device):
+// forget its local pin, otherwise it stays pinned after unpinning.
+void ForgetLocalPin(
+	not_null<Dialogs::Entry*> entry,
+	FilterId filterId);
+
 // Drag-n-drop of pinned chats: local pins are reordered among themselves,
 // a local pin never swaps with a server one. False for two server pins.
 [[nodiscard]] bool ReorderLocalPins(
