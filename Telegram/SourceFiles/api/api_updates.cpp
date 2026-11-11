@@ -232,6 +232,12 @@ bool HasForceLogoutNotification(const MTPUpdates &updates) {
 	return false;
 }
 
+// Telewhite ghost mode: "offline" is repeated a few times after sending,
+// the server may process the message after the first "offline".
+constexpr auto kGhostOfflineRepeatDelay = crl::time(3000);
+constexpr auto kGhostOfflineRepeats = 2;
+constexpr auto kGhostActionWindow = crl::time(15000);
+
 } // namespace
 
 Updates::Updates(not_null<Main::Session*> session)
@@ -245,6 +251,26 @@ Updates::Updates(not_null<Main::Session*> session)
 , _failDifferenceTimer([=] { getDifferenceAfterFail(); })
 , _idleFinishTimer([=] { checkIdleFinish(); }) {
 	_ptsWaiter.setRequesting(true);
+
+	_ghostOfflineTimer.setCallback([=] {
+		sendGhostOffline();
+		if (--_ghostOfflineRepeats > 0) {
+			_ghostOfflineTimer.callOnce(kGhostOfflineRepeatDelay);
+		}
+	});
+	Telewhite::EnabledValue(
+		Telewhite::Mod::GhostOnline
+	) | rpl::skip(1) | rpl::on_next([=](bool enabled) {
+		_ghostOfflineSent = false;
+		if (enabled) {
+			sendGhostOffline();
+		} else {
+			_ghostActionAt = 0;
+			_ghostOfflineRepeats = 0;
+			_ghostOfflineTimer.cancel();
+			updateOnline();
+		}
+	}, _lifetime);
 
 	session->account().mtpUpdates(
 	) | rpl::on_next([=](const MTPUpdates &updates) {
@@ -1001,6 +1027,11 @@ void Updates::updateOnline(crl::time lastNonIdleTime, bool gotOtherOffline) {
 		Core::App().checkAutoLock(lastNonIdleTime);
 	});
 
+	if (Telewhite::Enabled(Telewhite::Mod::GhostOnline)
+		&& !_ghostOfflineSent) {
+		// The server may still show us online from before, fix it once.
+		sendGhostOffline();
+	}
 	const auto &config = _session->serverConfig();
 	bool isOnline = Core::App().hasActiveWindow(&session())
 		&& !Telewhite::Enabled(Telewhite::Mod::GhostOnline);
@@ -1094,6 +1125,30 @@ bool Updates::isQuitPrevent() {
 	LOG(("Api::Updates prevents quit, sending offline status..."));
 	updateOnline(crl::now());
 	return true;
+}
+
+void Updates::ghostOfflineAfterAction() {
+	if (!Telewhite::Enabled(Telewhite::Mod::GhostOnline)) {
+		return;
+	}
+	_ghostActionAt = crl::now();
+	sendGhostOffline();
+	_ghostOfflineRepeats = kGhostOfflineRepeats;
+	_ghostOfflineTimer.callOnce(kGhostOfflineRepeatDelay);
+}
+
+void Updates::sendGhostOffline() {
+	if (!Telewhite::Enabled(Telewhite::Mod::GhostOnline)
+		|| Core::Quitting()) {
+		return;
+	}
+	_ghostOfflineSent = true;
+	api().request(base::take(_onlineRequest)).cancel();
+	_lastWasOnline = false;
+	_lastSetOnline = crl::now();
+	_onlineRequest = api().request(MTPaccount_UpdateStatus(
+		MTP_bool(true)
+	)).send();
 }
 
 void Updates::handleSendActionUpdate(
@@ -2152,6 +2207,12 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 			} else if (d.vstatus().type() == mtpc_userStatusOnline) {
 				cSetOtherOnline(
 					d.vstatus().c_userStatusOnline().vexpires().v);
+				if (Telewhite::Enabled(Telewhite::Mod::GhostOnline)
+					&& _ghostActionAt
+					&& crl::now() - _ghostActionAt < kGhostActionWindow) {
+					// Our own message made us online, go back offline.
+					sendGhostOffline();
+				}
 			}
 		}
 	} break;
