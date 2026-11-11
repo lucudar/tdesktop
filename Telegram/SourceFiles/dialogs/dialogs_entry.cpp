@@ -205,6 +205,10 @@ void Entry::cachePinnedIndex(FilterId filterId, int index) {
 	} else {
 		i->second = index;
 	}
+	if (index && !was) {
+		// Telewhite: pinned on the server, it is not a local pin anymore.
+		Telewhite::ForgetLocalPin(this, filterId);
+	}
 	pinnedIndexChanged(filterId, was, index);
 }
 
