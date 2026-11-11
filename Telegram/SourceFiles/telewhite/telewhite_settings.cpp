@@ -379,12 +379,6 @@ rpl::event_stream<> ExcludedFoldersChanges;
 			{ u"опрос"_q, u"результаты"_q, u"poll"_q });
 		break;
 	case Group::Premium:
-		mod(
-			u"premium/pins"_q,
-			&tr::lng_telewhite_mods_local_pins,
-			Mod::LocalPins,
-			Scene::LocalPins,
-			{ u"закреп"_q, u"лимит"_q, u"pin"_q });
 		result.push_back({
 			.id = u"telewhite/premium/translate"_q,
 			.title = &tr::lng_telewhite_mods_translate_chats,
