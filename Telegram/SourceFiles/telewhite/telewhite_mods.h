@@ -66,6 +66,7 @@ enum class Mod {
 	NowPlayingBio,
 	NowPlayingProfile,
 	NowPlayingSoundCloud,
+	GhostScheduled,
 
 	kCount,
 };
@@ -107,6 +108,10 @@ void SetEnabled(Mod mod, bool enabled);
 
 // Sub-options are not counted as separate mods in the settings banner.
 [[nodiscard]] bool CountedInBanner(Mod mod);
+
+// Features removed from Telewhite (music in the profile, fake location):
+// they always stay off and are not shown in the settings.
+[[nodiscard]] bool Removed(Mod mod);
 
 [[nodiscard]] int OptionNow(Option option);
 [[nodiscard]] rpl::producer<int> OptionValue(Option option);
