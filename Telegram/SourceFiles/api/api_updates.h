@@ -56,6 +56,9 @@ public:
 	// that makes the server show us online, like sending a message.
 	void ghostOfflineAfterAction();
 	void sendGhostOffline();
+	// Sends "offline" if the server shows us online for any reason.
+	void ghostCheck();
+	[[nodiscard]] bool ghostSelfOnline() const;
 
 	bool updateAndApply(int32 pts, int32 ptsCount, const MTPUpdates &updates);
 	bool updateAndApply(int32 pts, int32 ptsCount, const MTPUpdate &update);
@@ -223,6 +226,7 @@ private:
 	rpl::variable<bool> _isIdle = false;
 
 	base::Timer _ghostOfflineTimer;
+	base::Timer _ghostWatchTimer;
 	crl::time _ghostActionAt = 0;
 	int _ghostOfflineRepeats = 0;
 	bool _ghostOfflineSent = false;
