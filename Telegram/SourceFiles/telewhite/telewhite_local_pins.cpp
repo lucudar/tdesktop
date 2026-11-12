@@ -6,6 +6,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "telewhite/telewhite_local_pins.h"
 
+#include "apiwrap.h"
+#include "data/data_channel.h"
 #include "data/data_folder.h"
 #include "data/data_peer_id.h"
 #include "data/data_session.h"
@@ -157,6 +159,18 @@ void Save(not_null<Main::Session*> session) {
 	return int(ranges::find(tail, history->peer->id) - begin(tail));
 }
 
+[[nodiscard]] MTPInputDialogPeer InputDialogPeer(Dialogs::Key key) {
+	if (const auto history = key.history()) {
+		if (const auto channel = history->peer->asChannel()
+			; channel && channel->isCommunity()) {
+			return MTP_inputDialogPeerCommunity(channel->inputChannel());
+		}
+		return MTP_inputDialogPeer(history->peer->input());
+	}
+	const auto folder = key.folder();
+	return MTP_inputDialogPeerFolder(MTP_int(folder ? folder->id() : 0));
+}
+
 } // namespace
 
 int LocalPinsLimit() {
@@ -246,6 +260,72 @@ void RestorePinnedTail(
 			key,
 			PinnedInsertPosition(key, list->order(), false));
 	}
+}
+
+void SyncPinned(
+		not_null<Main::Session*> session,
+		Data::Folder *folder,
+		Dialogs::Key toggled,
+		bool pinned) {
+	using ToggleFlag = MTPmessages_ToggleDialogPin::Flag;
+	using ReorderFlag = MTPmessages_ReorderPinnedDialogs::Flag;
+
+	const auto owner = &session->data();
+	const auto order = owner->pinnedChatsOrder(folder);
+	const auto size = int(order.size());
+	const auto serverLimit = std::max(owner->pinnedChatsLimit(folder), 0);
+	const auto server = std::min(size, serverLimit);
+	const auto stored = TailFor(session, ListKey(folder));
+	const auto wasTail = stored ? *stored : std::vector<PeerId>();
+	const auto inWasTail = [&](Dialogs::Key key) {
+		return IndexInTail(wasTail, key) < int(wasTail.size());
+	};
+	const auto isNewPin = [&](Dialogs::Key key) {
+		return pinned && toggled && (key == toggled);
+	};
+
+	// Remember the tail before any request: the server updates about
+	// the chats unpinned there must not unpin them here.
+	SavePinnedTail(session, folder, order, serverLimit);
+
+	auto &api = session->api();
+	auto last = mtpRequestId(0);
+	const auto toggle = [&](Dialogs::Key key, bool pin) {
+		const auto flags = pin ? ToggleFlag::f_pinned : ToggleFlag(0);
+		last = api.request(MTPmessages_ToggleDialogPin(
+			MTP_flags(flags),
+			InputDialogPeer(key)
+		)).afterRequest(last).send();
+	};
+
+	// First free the server slots.
+	if (toggled && !pinned && !inWasTail(toggled)) {
+		toggle(toggled, false);
+	}
+	for (auto i = server; i < size; ++i) {
+		const auto key = order[i];
+		if (key.history() && !inWasTail(key) && !isNewPin(key)) {
+			toggle(key, false);
+		}
+	}
+	// Then pin there the chats that came into the server part.
+	for (auto i = 0; i < server; ++i) {
+		const auto key = order[i];
+		if (key.history() && (inWasTail(key) || isNewPin(key))) {
+			toggle(key, true);
+		}
+	}
+	// And save their order.
+	auto peers = QVector<MTPInputDialogPeer>();
+	peers.reserve(server);
+	for (auto i = 0; i < server; ++i) {
+		peers.push_back(InputDialogPeer(order[i]));
+	}
+	api.request(MTPmessages_ReorderPinnedDialogs(
+		MTP_flags(ReorderFlag::f_force),
+		MTP_int(folder ? folder->id() : 0),
+		MTP_vector(peers)
+	)).afterRequest(last).send();
 }
 
 int LocalPinIndex(not_null<const Dialogs::Entry*>, FilterId) {
