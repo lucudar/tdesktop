@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 
 #include "telewhite/telewhite_ghost_read.h"
+#include "telewhite/telewhite_local_pins.h"
 #include "telewhite/telewhite_mods.h"
 #include "telewhite/telewhite_tweaks.h"
 #include "api/api_authorizations.h"
@@ -435,30 +436,9 @@ void ApiWrap::checkFilterInvite(
 }
 
 void ApiWrap::savePinnedOrder(Data::Folder *folder) {
-	const auto &order = _session->data().pinnedChatsOrder(folder);
-	const auto input = [](Dialogs::Key key) {
-		if (const auto history = key.history()) {
-			if (const auto channel = history->peer->asChannel()
-				; channel && channel->isCommunity()) {
-				return MTP_inputDialogPeerCommunity(channel->inputChannel());
-			}
-			return MTP_inputDialogPeer(history->peer->input());
-		} else if (const auto folder = key.folder()) {
-			return MTP_inputDialogPeerFolder(MTP_int(folder->id()));
-		}
-		Unexpected("Key type in pinnedDialogsOrder().");
-	};
-	auto peers = QVector<MTPInputDialogPeer>();
-	peers.reserve(order.size());
-	ranges::transform(
-		order,
-		ranges::back_inserter(peers),
-		input);
-	request(MTPmessages_ReorderPinnedDialogs(
-		MTP_flags(MTPmessages_ReorderPinnedDialogs::Flag::f_force),
-		MTP_int(folder ? folder->id() : 0),
-		MTP_vector(peers)
-	)).send();
+	// Telewhite: only the first pins go to the server, the rest stay on
+	// this computer, chats crossing that line are pinned / unpinned there.
+	Telewhite::SyncPinned(_session, folder, Dialogs::Key(), false);
 }
 
 void ApiWrap::savePinnedOrder(not_null<Data::Forum*> forum) {

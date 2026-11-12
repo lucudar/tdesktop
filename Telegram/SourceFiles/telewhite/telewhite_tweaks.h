@@ -8,6 +8,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 class PeerData;
 
+namespace Api {
+struct SendAction;
+} // namespace Api
+
+namespace Data {
+class ChatFilter;
+} // namespace Data
+
 namespace Main {
 class Session;
 } // namespace Main
@@ -20,6 +28,16 @@ namespace Telewhite {
 
 // "Anti-caps": a message typed in CAPS LOCK is sent in normal case.
 void ApplyAntiCaps(TextWithEntities &text);
+
+// Ghost mode: messages go as scheduled a few seconds ahead,
+// so the server never shows the sender online.
+void ApplyGhostSchedule(Api::SendAction &action);
+
+// "Folder tags" without Premium: shown after a restart, folders
+// without their own color get a color picked locally.
+[[nodiscard]] bool FolderTagsShown(bool serverEnabled);
+[[nodiscard]] std::optional<uint8> FolderTagColor(
+	const Data::ChatFilter &filter);
 
 // Green dot on the userpic of an online author in groups.
 void PaintAuthorOnline(

@@ -257,6 +257,15 @@ rpl::event_stream<> ExcludedFoldersChanges;
 			Scene::GhostOnline,
 			{ u"онлайн"_q, u"в сети"_q, u"online"_q });
 		mod(
+			u"ghost/scheduled"_q,
+			&tr::lng_telewhite_mods_ghost_scheduled,
+			Mod::GhostScheduled,
+			Scene::GhostOnline,
+			{ u"отложенные"_q, u"невидимка"_q, u"scheduled"_q });
+		result.back().sub = true;
+		result.back().help = false;
+		result.back().shown = EnabledValue(Mod::GhostOnline);
+		mod(
 			u"ghost/stories"_q,
 			&tr::lng_telewhite_mods_ghost_stories,
 			Mod::GhostStories,
@@ -370,12 +379,6 @@ rpl::event_stream<> ExcludedFoldersChanges;
 			{ u"опрос"_q, u"результаты"_q, u"poll"_q });
 		break;
 	case Group::Premium:
-		mod(
-			u"premium/pins"_q,
-			&tr::lng_telewhite_mods_local_pins,
-			Mod::LocalPins,
-			Scene::LocalPins,
-			{ u"закреп"_q, u"лимит"_q, u"pin"_q });
 		result.push_back({
 			.id = u"telewhite/premium/translate"_q,
 			.title = &tr::lng_telewhite_mods_translate_chats,
@@ -398,6 +401,13 @@ rpl::event_stream<> ExcludedFoldersChanges;
 			Mod::TranslateBeforeSend,
 			Scene::TranslateBeforeSend,
 			{ u"перевод"_q, u"перед отправкой"_q, u"translate"_q });
+		mod(
+			u"premium/folder-tags"_q,
+			&tr::lng_telewhite_mods_folder_tags,
+			Mod::FolderTags,
+			Scene::TranslateChats,
+			{ u"метки"_q, u"папки"_q, u"теги"_q, u"tags"_q });
+		result.back().help = false;
 		break;
 	case Group::Clean:
 		result.push_back({
@@ -636,9 +646,12 @@ rpl::event_stream<> ExcludedFoldersChanges;
 }
 
 [[nodiscard]] bool GroupShown(Group group) {
-	// Streamer mode and players are supported only on Windows.
-	return (group != Group::Streamer && group != Group::Music)
-		|| Platform::IsWindows();
+	// Music and the fake location were removed from Telewhite.
+	if (group == Group::Music || group == Group::Location) {
+		return false;
+	}
+	// Streamer mode is supported only on Windows.
+	return (group != Group::Streamer) || Platform::IsWindows();
 }
 
 // Small round "?" button near the toggle, opens the "how it works" box.
@@ -809,12 +822,12 @@ void AddChoice(SectionBuilder &builder, ChoiceDescriptor &&descriptor) {
 	});
 }
 
-// Transparency in percents, 0 - 90 with 10 steps.
+// Transparency in percents, 0 - 90, smooth: one percent per step.
 [[nodiscard]] object_ptr<Ui::RpWidget> CreatePercentSlider(
 		not_null<Ui::VerticalLayout*> container,
 		rpl::producer<QString> title,
 		Option option) {
-	constexpr auto kSteps = 10;
+	constexpr auto kSteps = 91;
 	auto result = object_ptr<Ui::VerticalLayout>(container);
 	const auto raw = result.data();
 	AddButtonWithLabel(
@@ -831,7 +844,7 @@ void AddChoice(SectionBuilder &builder, ChoiceDescriptor &&descriptor) {
 	slider->resize(st::autoDownloadLimitSlider.seekSize);
 	slider->setPseudoDiscrete(
 		kSteps,
-		[](int index) { return index * 10; },
+		[](int index) { return index; },
 		std::clamp(OptionNow(option), 0, 90),
 		[=](int value) {
 			if (OptionNow(option) != value) {
@@ -1627,6 +1640,9 @@ void BuildCustomTexts(SectionBuilder &builder) {
 }
 
 void BuildGroup(SectionBuilder &builder, Group group) {
+	if (!GroupShown(group)) {
+		return;
+	}
 	if (group == Group::Design) {
 		BuildDesign(builder);
 		return;
