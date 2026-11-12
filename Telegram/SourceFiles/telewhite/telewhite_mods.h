@@ -67,6 +67,7 @@ enum class Mod {
 	NowPlayingProfile,
 	NowPlayingSoundCloud,
 	GhostScheduled,
+	FolderTags,
 
 	kCount,
 };
