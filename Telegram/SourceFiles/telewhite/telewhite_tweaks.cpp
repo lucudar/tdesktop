@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_common.h"
 #include "base/unixtime.h"
 #include "data/data_changes.h"
+#include "data/data_chat_filters.h"
 #include "data/data_peer.h"
 #include "data/data_peer_values.h"
 #include "data/data_user.h"
@@ -226,6 +227,22 @@ void ApplyGhostSchedule(Api::SendAction &action) {
 		return;
 	}
 	action.options.scheduled = base::unixtime::now() + kDelay;
+}
+
+bool FolderTagsShown(bool serverEnabled) {
+	// Read once: the colors are given to the chats when they load.
+	static const auto local = Enabled(Mod::FolderTags);
+	return serverEnabled || local;
+}
+
+std::optional<uint8> FolderTagColor(const Data::ChatFilter &filter) {
+	constexpr auto kColorsCount = 7;
+	if (const auto color = filter.colorIndex()) {
+		return color;
+	} else if (!filter.id() || !FolderTagsShown(false)) {
+		return std::nullopt;
+	}
+	return uint8(std::abs(int(filter.id())) % kColorsCount);
 }
 
 } // namespace Telewhite
