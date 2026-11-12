@@ -436,36 +436,9 @@ void ApiWrap::checkFilterInvite(
 }
 
 void ApiWrap::savePinnedOrder(Data::Folder *folder) {
-	const auto &order = _session->data().pinnedChatsOrder(folder);
-	// Telewhite: only the first pins go to the server (the force flag
-	// makes it pin and unpin to match), the rest stay on this computer.
-	const auto serverLimit = std::max(
-		_session->data().pinnedChatsLimit(folder),
-		0);
-	Telewhite::SavePinnedTail(_session, folder, order, serverLimit);
-	const auto input = [](Dialogs::Key key) {
-		if (const auto history = key.history()) {
-			if (const auto channel = history->peer->asChannel()
-				; channel && channel->isCommunity()) {
-				return MTP_inputDialogPeerCommunity(channel->inputChannel());
-			}
-			return MTP_inputDialogPeer(history->peer->input());
-		} else if (const auto folder = key.folder()) {
-			return MTP_inputDialogPeerFolder(MTP_int(folder->id()));
-		}
-		Unexpected("Key type in pinnedDialogsOrder().");
-	};
-	const auto count = std::min(int(order.size()), serverLimit);
-	auto peers = QVector<MTPInputDialogPeer>();
-	peers.reserve(count);
-	for (auto i = 0; i != count; ++i) {
-		peers.push_back(input(order[i]));
-	}
-	request(MTPmessages_ReorderPinnedDialogs(
-		MTP_flags(MTPmessages_ReorderPinnedDialogs::Flag::f_force),
-		MTP_int(folder ? folder->id() : 0),
-		MTP_vector(peers)
-	)).send();
+	// Telewhite: only the first pins go to the server, the rest stay on
+	// this computer, chats crossing that line are pinned / unpinned there.
+	Telewhite::SyncPinned(_session, folder, Dialogs::Key(), false);
 }
 
 void ApiWrap::savePinnedOrder(not_null<Data::Forum*> forum) {
