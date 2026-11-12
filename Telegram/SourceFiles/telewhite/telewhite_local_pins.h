@@ -49,6 +49,16 @@ void SavePinnedTail(
 	const std::vector<Dialogs::Key> &order,
 	int serverLimit);
 
+// A pin was toggled (toggled is empty after drag-n-drop): the first pins
+// of the list are pinned on the server one by one (reordering alone does
+// not pin new chats), the pins pushed out of them are unpinned there and
+// stay on this computer, then the server order is saved.
+void SyncPinned(
+	not_null<Main::Session*> session,
+	Data::Folder *folder,
+	Dialogs::Key toggled,
+	bool pinned);
+
 // The chat is pinned only on this computer in its current list.
 [[nodiscard]] bool IsPinnedTail(Dialogs::Key key);
 
