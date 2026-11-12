@@ -401,6 +401,13 @@ rpl::event_stream<> ExcludedFoldersChanges;
 			Mod::TranslateBeforeSend,
 			Scene::TranslateBeforeSend,
 			{ u"перевод"_q, u"перед отправкой"_q, u"translate"_q });
+		mod(
+			u"premium/folder-tags"_q,
+			&tr::lng_telewhite_mods_folder_tags,
+			Mod::FolderTags,
+			Scene::TranslateChats,
+			{ u"метки"_q, u"папки"_q, u"теги"_q, u"tags"_q });
+		result.back().help = false;
 		break;
 	case Group::Clean:
 		result.push_back({
