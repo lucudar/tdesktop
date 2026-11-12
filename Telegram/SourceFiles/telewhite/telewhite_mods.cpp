@@ -75,6 +75,7 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::NowPlayingProfile: return "telewhite-now-playing-profile";
 	case Mod::NowPlayingSoundCloud: return "telewhite-now-playing-soundcloud";
 	case Mod::GhostScheduled: return "telewhite-ghost-scheduled";
+	case Mod::FolderTags: return "telewhite-folder-tags";
 	case Mod::kCount: break;
 	}
 	Unexpected("Mod in Telewhite::Key.");
