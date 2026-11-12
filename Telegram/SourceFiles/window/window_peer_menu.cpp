@@ -456,7 +456,11 @@ void TogglePinnedThread(
 	if (const auto history = entry->asHistory()) {
 		// Telewhite: the whole order goes through savePinnedOrder(), it
 		// keeps the pins over the server limit on this computer only.
-		owner->session().api().savePinnedOrder(history->folder());
+		Telewhite::SyncPinned(
+			&owner->session(),
+			history->folder(),
+			history,
+			isPinned);
 		owner->notifyPinnedDialogsOrderUpdated();
 		if (onToggled) {
 			onToggled();
