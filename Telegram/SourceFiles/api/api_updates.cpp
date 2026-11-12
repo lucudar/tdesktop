@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "api/api_updates.h"
 
+#include "telewhite/telewhite_local_pins.h"
 #include "telewhite/telewhite_mods.h"
 #include "api/api_authorizations.h"
 #include "api/api_user_names.h"
@@ -2598,6 +2599,10 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 		const auto done = d.vpeer().match([&](const MTPDdialogPeer &data) {
 			const auto id = peerFromMTP(data.vpeer());
 			if (const auto history = session().data().historyLoaded(id)) {
+				// Telewhite: a pin moved to this computer only stays pinned.
+				if (!d.is_pinned() && Telewhite::IsPinnedTail(history)) {
+					return true;
+				}
 				history->applyPinnedUpdate(d);
 				return true;
 			}
@@ -2629,6 +2634,9 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 			if (channel) {
 				if (const auto history
 						= session().data().historyLoaded(channel)) {
+					if (!d.is_pinned() && Telewhite::IsPinnedTail(history)) {
+						return true;
+					}
 					history->applyPinnedUpdate(d);
 					return true;
 				}
