@@ -35,8 +35,11 @@ namespace Telewhite {
 // list as is. Its first pins (as many as the server allows this account) are
 // synchronized with the server, the rest is a local "tail" that only this
 // computer knows and never goes to the server. The tail is remembered per
-// account and list, so a server list that doesn't mention those chats can't
-// unpin them. Chat folders keep Telegram's behaviour.
+// account and list together with the chats themselves, so a server list
+// that doesn't mention those chats can't unpin them, and after the start
+// they are asked from the server and pinned back at once. The chats of the
+// tail not loaded yet are never dropped from it. Chat folders keep
+// Telegram's behaviour.
 
 // The local ceiling of every list, far beyond any server limit.
 [[nodiscard]] int LocalPinsLimit();
@@ -69,7 +72,8 @@ void SyncPinned(
 	const std::vector<Dialogs::Key> &order,
 	bool serverPin);
 
-// The server list was applied: puts the local tail back after it.
+// The server list was applied: puts the local tail back after it and asks
+// the server about the chats of the tails not loaded yet.
 void RestorePinnedTail(
 	not_null<Data::Session*> owner,
 	Data::Folder *folder);
