@@ -6,36 +6,39 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "telewhite/telewhite_local_pins.h"
 
+#include "apiwrap.h"
+#include "data/data_channel.h"
+#include "data/data_folder.h"
 #include "data/data_peer_id.h"
 #include "data/data_session.h"
 #include "dialogs/dialogs_entry.h"
+#include "dialogs/dialogs_main_list.h"
+#include "dialogs/dialogs_pinned_list.h"
 #include "history/history.h"
-#include "lang/lang_keys.h"
 #include "main/main_session.h"
-#include "mainwidget.h"
 #include "storage/storage_account.h"
-#include "telewhite/telewhite_mods.h"
-#include "window/window_session_controller.h"
 
 #include <QtCore/QDataStream>
 
 namespace Telewhite {
 namespace {
 
-// Version 1 had only the main list, version 2 keeps a list per chat folder.
-constexpr auto kVersion = quint32(2);
-constexpr auto kMaxLocalPins = 1000;
+// Version 1 had only the main list, version 2 - a list per chat folder with
+// pins placed under the server ones. Version 3 keeps the local tail of the
+// main list (key 0) and of the archive (key - the folder id).
+constexpr auto kVersion = quint32(3);
+constexpr auto kLocalPinsLimit = 1000;
 constexpr auto kMaxLists = 1000;
 
-using Lists = base::flat_map<FilterId, std::vector<PeerId>>;
+using Lists = base::flat_map<int, std::vector<PeerId>>;
 
 [[nodiscard]] QByteArray Serialize(UserId userId, const Lists &lists) {
 	auto result = QByteArray();
 	auto stream = QDataStream(&result, QIODevice::WriteOnly);
 	stream.setVersion(QDataStream::Qt_5_1);
 	stream << kVersion << quint64(userId.bare) << quint32(lists.size());
-	for (const auto &[filterId, order] : lists) {
-		stream << qint32(filterId) << quint32(order.size());
+	for (const auto &[key, order] : lists) {
+		stream << qint32(key) << quint32(order.size());
 		for (const auto &peerId : order) {
 			stream << SerializePeerId(peerId);
 		}
@@ -47,7 +50,7 @@ using Lists = base::flat_map<FilterId, std::vector<PeerId>>;
 	auto count = quint32();
 	stream >> count;
 	if (stream.status() != QDataStream::Ok
-		|| count > quint32(kMaxLocalPins)) {
+		|| count > quint32(kLocalPinsLimit)) {
 		return false;
 	}
 	order.reserve(count);
@@ -80,9 +83,11 @@ using Lists = base::flat_map<FilterId, std::vector<PeerId>>;
 		if (!ReadOrder(stream, order)) {
 			return {};
 		}
-		result.emplace(FilterId(), std::move(order));
+		if (!order.empty()) {
+			result.emplace(0, std::move(order));
+		}
 		return result;
-	} else if (version != kVersion) {
+	} else if (version != 2 && version != kVersion) {
 		return {};
 	}
 	auto lists = quint32();
@@ -91,20 +96,25 @@ using Lists = base::flat_map<FilterId, std::vector<PeerId>>;
 		return {};
 	}
 	for (auto i = quint32(); i != lists; ++i) {
-		auto filterId = qint32();
-		stream >> filterId;
+		auto key = qint32();
+		stream >> key;
 		auto order = std::vector<PeerId>();
 		if (stream.status() != QDataStream::Ok || !ReadOrder(stream, order)) {
 			return {};
 		}
+		// Version 2 kept chat folders by their ids, only the main list
+		// becomes the local tail now.
+		if (version == 2 && key != 0) {
+			continue;
+		}
 		if (!order.empty()) {
-			result.emplace(FilterId(filterId), std::move(order));
+			result.emplace(int(key), std::move(order));
 		}
 	}
 	return result;
 }
 
-// Never dropped with the session: sort keys may be asked during teardown.
+// Never dropped with the session: pins may be asked during teardown.
 [[nodiscard]] Lists &AllLists(not_null<Main::Session*> session) {
 	static auto loaded = base::flat_map<uint64, Lists>();
 	const auto key = session->uniqueId();
@@ -126,131 +136,227 @@ void Save(not_null<Main::Session*> session) {
 		false);
 }
 
-[[nodiscard]] const std::vector<PeerId> *OrderFor(
+[[nodiscard]] int ListKey(Data::Folder *folder) {
+	return folder ? int(folder->id()) : 0;
+}
+
+[[nodiscard]] const std::vector<PeerId> *TailFor(
 		not_null<Main::Session*> session,
-		FilterId filterId) {
+		int key) {
 	const auto &lists = AllLists(session);
-	const auto i = lists.find(filterId);
+	const auto i = lists.find(key);
 	return (i != end(lists)) ? &i->second : nullptr;
 }
 
-void Resort(not_null<History*> history, const std::vector<PeerId> &order) {
-	const auto owner = &history->owner();
-	for (const auto &id : order) {
-		if (const auto pinnedHistory = owner->historyLoaded(id)) {
-			pinnedHistory->updateChatListSortPosition();
-		}
+// Index in the remembered tail or the tail size if it's not there.
+[[nodiscard]] int IndexInTail(
+		const std::vector<PeerId> &tail,
+		Dialogs::Key key) {
+	const auto history = key.history();
+	if (!history) {
+		return int(tail.size());
 	}
+	return int(ranges::find(tail, history->peer->id) - begin(tail));
+}
+
+[[nodiscard]] MTPInputDialogPeer InputDialogPeer(Dialogs::Key key) {
+	if (const auto history = key.history()) {
+		if (const auto channel = history->peer->asChannel()
+			; channel && channel->isCommunity()) {
+			return MTP_inputDialogPeerCommunity(channel->inputChannel());
+		}
+		return MTP_inputDialogPeer(history->peer->input());
+	}
+	const auto folder = key.folder();
+	return MTP_inputDialogPeerFolder(MTP_int(folder ? folder->id() : 0));
 }
 
 } // namespace
 
-int LocalPinIndex(
-		not_null<const Dialogs::Entry*> entry,
-		FilterId filterId) {
-	const auto history = entry->asHistory();
-	if (!history) {
-		return 0;
-	}
-	const auto order = OrderFor(&history->session(), filterId);
-	if (!order) {
-		return 0;
-	}
-	const auto i = ranges::find(*order, history->peer->id);
-	return (i != end(*order)) ? int(i - begin(*order)) + 1 : 0;
+int LocalPinsLimit() {
+	return kLocalPinsLimit;
 }
 
-bool IsLocallyPinned(
-		not_null<const Dialogs::Entry*> entry,
-		FilterId filterId) {
-	return LocalPinIndex(entry, filterId) != 0;
+void SavePinnedTail(
+		not_null<Main::Session*> session,
+		Data::Folder *folder,
+		const std::vector<Dialogs::Key> &order,
+		int serverLimit) {
+	auto tail = std::vector<PeerId>();
+	for (auto i = std::max(serverLimit, 0); i < int(order.size()); ++i) {
+		if (const auto history = order[i].history()) {
+			tail.push_back(history->peer->id);
+		}
+	}
+	auto &lists = AllLists(session);
+	const auto key = ListKey(folder);
+	const auto i = lists.find(key);
+	if (tail.empty()) {
+		if (i == end(lists)) {
+			return;
+		}
+		lists.remove(key);
+	} else if (i != end(lists) && i->second == tail) {
+		return;
+	} else {
+		lists[key] = std::move(tail);
+	}
+	Save(session);
+}
+
+bool IsPinnedTail(Dialogs::Key key) {
+	const auto history = key.history();
+	if (!history || !history->folderKnown()) {
+		return false;
+	}
+	const auto tail = TailFor(
+		&history->session(),
+		ListKey(history->folder()));
+	return tail && (IndexInTail(*tail, key) < int(tail->size()));
+}
+
+int PinnedInsertPosition(
+		Dialogs::Key key,
+		const std::vector<Dialogs::Key> &order,
+		bool serverPin) {
+	const auto size = int(order.size());
+	const auto entry = key.entry();
+	if (!entry->folderKnown()) {
+		return size;
+	}
+	const auto tail = TailFor(&entry->session(), ListKey(entry->folder()));
+	if (!tail || tail->empty()) {
+		return size;
+	}
+	const auto tailSize = int(tail->size());
+	const auto mine = serverPin ? -1 : IndexInTail(*tail, key);
+	for (auto i = 0; i != size; ++i) {
+		const auto index = IndexInTail(*tail, order[i]);
+		if (index < tailSize && index > mine) {
+			return i;
+		}
+	}
+	return size;
+}
+
+void RestorePinnedTail(
+		not_null<Data::Session*> owner,
+		Data::Folder *folder) {
+	const auto tail = TailFor(&owner->session(), ListKey(folder));
+	if (!tail) {
+		return;
+	}
+	const auto copy = *tail;
+	const auto list = owner->chatsList(folder)->pinned();
+	for (const auto &peerId : copy) {
+		const auto history = owner->historyLoaded(peerId);
+		if (!history
+			|| !history->folderKnown()
+			|| history->folder() != folder) {
+			continue;
+		}
+		const auto key = Dialogs::Key(history);
+		list->addPinnedAt(
+			key,
+			PinnedInsertPosition(key, list->order(), false));
+	}
+}
+
+void SyncPinned(
+		not_null<Main::Session*> session,
+		Data::Folder *folder,
+		Dialogs::Key toggled,
+		bool pinned) {
+	using ToggleFlag = MTPmessages_ToggleDialogPin::Flag;
+	using ReorderFlag = MTPmessages_ReorderPinnedDialogs::Flag;
+
+	const auto owner = &session->data();
+	const auto order = owner->pinnedChatsOrder(folder);
+	const auto size = int(order.size());
+	const auto serverLimit = std::max(owner->pinnedChatsLimit(folder), 0);
+	const auto server = std::min(size, serverLimit);
+	const auto stored = TailFor(session, ListKey(folder));
+	const auto wasTail = stored ? *stored : std::vector<PeerId>();
+	const auto inWasTail = [&](Dialogs::Key key) {
+		return IndexInTail(wasTail, key) < int(wasTail.size());
+	};
+	const auto isNewPin = [&](Dialogs::Key key) {
+		return pinned && toggled && (key == toggled);
+	};
+
+	// Remember the tail before any request: the server updates about
+	// the chats unpinned there must not unpin them here.
+	SavePinnedTail(session, folder, order, serverLimit);
+
+	auto &api = session->api();
+	auto last = mtpRequestId(0);
+	const auto toggle = [&](Dialogs::Key key, bool pin) {
+		const auto flags = pin ? ToggleFlag::f_pinned : ToggleFlag(0);
+		last = api.request(MTPmessages_ToggleDialogPin(
+			MTP_flags(flags),
+			InputDialogPeer(key)
+		)).afterRequest(last).send();
+	};
+
+	// First free the server slots.
+	if (toggled && !pinned && !inWasTail(toggled)) {
+		toggle(toggled, false);
+	}
+	for (auto i = server; i < size; ++i) {
+		const auto key = order[i];
+		if (key.history() && !inWasTail(key) && !isNewPin(key)) {
+			toggle(key, false);
+		}
+	}
+	// Then pin there the chats that came into the server part.
+	for (auto i = 0; i < server; ++i) {
+		const auto key = order[i];
+		if (key.history() && (inWasTail(key) || isNewPin(key))) {
+			toggle(key, true);
+		}
+	}
+	// And save their order.
+	auto peers = QVector<MTPInputDialogPeer>();
+	peers.reserve(server);
+	for (auto i = 0; i < server; ++i) {
+		peers.push_back(InputDialogPeer(order[i]));
+	}
+	api.request(MTPmessages_ReorderPinnedDialogs(
+		MTP_flags(ReorderFlag::f_force),
+		MTP_int(folder ? folder->id() : 0),
+		MTP_vector(peers)
+	)).afterRequest(last).send();
+}
+
+int LocalPinIndex(not_null<const Dialogs::Entry*>, FilterId) {
+	return 0;
+}
+
+bool IsLocallyPinned(not_null<const Dialogs::Entry*>, FilterId) {
+	return false;
 }
 
 bool IsPinnedInList(
 		not_null<const Dialogs::Entry*> entry,
 		FilterId filterId) {
-	return entry->isPinnedDialog(filterId)
-		|| IsLocallyPinned(entry, filterId);
+	return entry->isPinnedDialog(filterId);
 }
 
-void SetLocallyPinned(
-		not_null<History*> history,
-		bool pinned,
-		FilterId filterId) {
-	const auto session = &history->session();
-	auto &lists = AllLists(session);
-	auto &order = lists[filterId];
-	const auto peerId = history->peer->id;
-	const auto i = ranges::find(order, peerId);
-	if (pinned == (i != end(order))) {
-		if (order.empty()) {
-			lists.remove(filterId);
-		}
-		return;
-	} else if (pinned) {
-		order.insert(begin(order), peerId);
-	} else {
-		order.erase(i);
-	}
-	const auto resort = order;
-	if (order.empty()) {
-		lists.remove(filterId);
-	}
-	Save(session);
-	Resort(history, resort);
-	if (!pinned) {
-		history->updateChatListSortPosition();
-	}
+void SetLocallyPinned(not_null<History*>, bool, FilterId) {
 }
 
 bool PinLocallyOverLimit(
-		not_null<Window::SessionController*> controller,
-		not_null<History*> history,
-		FilterId filterId) {
-	if (!Enabled(Mod::LocalPins)) {
-		return false;
-	}
-	const auto order = OrderFor(&history->session(), filterId);
-	if (order && int(order->size()) >= kMaxLocalPins) {
-		return false;
-	}
-	SetLocallyPinned(history, true, filterId);
-	controller->content()->dialogsToUp();
-	controller->showToast(tr::lng_telewhite_local_pin_toast(tr::now));
-	return true;
+		not_null<Window::SessionController*>,
+		not_null<History*>,
+		FilterId) {
+	return false;
 }
 
-bool ReorderLocalPins(
-		FilterId filterId,
-		Dialogs::Key key1,
-		Dialogs::Key key2) {
-	const auto first = key1.entry();
-	const auto second = key2.entry();
-	const auto local1 = !first->isPinnedDialog(filterId)
-		&& IsLocallyPinned(first, filterId);
-	const auto local2 = !second->isPinnedDialog(filterId)
-		&& IsLocallyPinned(second, filterId);
-	if (!local1 && !local2) {
-		return false;
-	} else if (!local1 || !local2) {
-		return true;
-	}
-	const auto history1 = first->asHistory();
-	const auto history2 = second->asHistory();
-	if (!history1 || !history2) {
-		return true;
-	}
-	const auto session = &history1->session();
-	auto &order = AllLists(session)[filterId];
-	const auto a = ranges::find(order, history1->peer->id);
-	const auto b = ranges::find(order, history2->peer->id);
-	if (a == end(order) || b == end(order)) {
-		return true;
-	}
-	std::iter_swap(a, b);
-	Save(session);
-	Resort(history1, order);
-	return true;
+bool ReorderLocalPins(FilterId, Dialogs::Key, Dialogs::Key) {
+	return false;
+}
+
+void ForgetLocalPin(not_null<Dialogs::Entry*>, FilterId) {
 }
 
 } // namespace Telewhite

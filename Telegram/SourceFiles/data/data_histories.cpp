@@ -37,6 +37,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "iv/iv_rich_page.h"
 #include "core/application.h"
 #include "apiwrap.h"
+#include "api/api_updates.h"
 
 namespace Data {
 namespace {
@@ -1104,6 +1105,10 @@ int Histories::sendRequest(
 			PostponedHistoryRequest{ std::move(generator) });
 		return id;
 	}
+	if (type == RequestType::Send) {
+		// Telewhite: ghost mode goes back "offline" right after sending.
+		_owner->session().updates().ghostOfflineAfterAction();
+	}
 	const auto requestId = generator([=] { checkPostponed(history, id); });
 	state.sent.emplace(id, SentRequest{
 		std::move(generator),
@@ -1221,6 +1226,7 @@ int Histories::sendPreparedMessage(
 					const MTP::Response &response) {
 				api->applyUpdates(result, randomId);
 				done(result, response);
+				session->updates().ghostOfflineAfterAction();
 				finish();
 			}).fail([=](
 					const MTP::Error &error,

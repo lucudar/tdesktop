@@ -28,6 +28,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history.h"
 #include "history/history_item.h"
 #include "telewhite/telewhite_local_pins.h"
+#include "telewhite/telewhite_tweaks.h"
 #include "styles/style_dialogs.h" // st::dialogsTextWidthMin
 
 namespace Dialogs {
@@ -452,7 +453,7 @@ not_null<Row*> Entry::addToChatList(
 		const auto &list = owner().chatsFilters().list();
 		const auto it = ranges::find(list, filterId, &Data::ChatFilter::id);
 		if (it != end(list)) {
-			setColorIndexForFilterId(filterId, it->colorIndex());
+			setColorIndexForFilterId(filterId, Telewhite::FolderTagColor(*it));
 		}
 	}
 	if (const auto main = maybeMainChatListLink(filterId)) {
@@ -525,7 +526,8 @@ void Entry::updateChatListEntryHeight() {
 }
 
 bool Entry::hasChatsFilterTags(FilterId exclude) const {
-	if (!owner().chatsFilters().tagsEnabled()) {
+	if (!Telewhite::FolderTagsShown(
+			owner().chatsFilters().tagsEnabled())) {
 		return false;
 	}
 	if (exclude) {
