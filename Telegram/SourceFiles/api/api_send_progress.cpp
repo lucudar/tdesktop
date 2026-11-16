@@ -24,6 +24,28 @@ constexpr auto kSendMySpeakingInterval = 3 * crl::time(1000);
 constexpr auto kSendMyTypingInterval = 5 * crl::time(1000);
 constexpr auto kSendTypingsToOfflineFor = TimeId(30);
 
+// Telewhite: the ghost mode can leave some of the statuses visible.
+[[nodiscard]] Telewhite::GhostStatus GhostStatusOf(SendProgressType type) {
+	using Type = SendProgressType;
+	using Status = Telewhite::GhostStatus;
+	switch (type) {
+	case Type::RecordVoice:
+	case Type::UploadVoice: return Status::Voice;
+	case Type::RecordRound:
+	case Type::UploadRound: return Status::Round;
+	case Type::RecordVideo:
+	case Type::UploadVideo:
+	case Type::UploadPhoto: return Status::Media;
+	case Type::UploadFile: return Status::File;
+	case Type::ChooseSticker: return Status::Sticker;
+	case Type::ChooseLocation:
+	case Type::ChooseContact: return Status::Location;
+	case Type::PlayGame: return Status::Game;
+	case Type::Speaking: return Status::Speaking;
+	default: return Status::Typing;
+	}
+}
+
 } // namespace
 
 SendProgressManager::SendProgressManager(not_null<Main::Session*> session)
@@ -153,7 +175,7 @@ void SendProgressManager::send(const Key &key, int progress) {
 }
 
 bool SendProgressManager::skipRequest(const Key &key) const {
-	if (Telewhite::Enabled(Telewhite::Mod::GhostTyping)) {
+	if (Telewhite::GhostStatusHidden(GhostStatusOf(key.type))) {
 		return true;
 	}
 	const auto user = key.history->peer->asUser();
