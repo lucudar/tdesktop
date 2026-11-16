@@ -6,10 +6,16 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "telewhite/telewhite_tweaks.h"
 
+#include "api/api_common.h"
+#include "base/unixtime.h"
 #include "data/data_changes.h"
+#include "data/data_chat_filters.h"
 #include "data/data_peer.h"
 #include "data/data_peer_values.h"
+#include "data/data_session.h"
 #include "data/data_user.h"
+#include "history/history.h"
+#include "history/history_item.h"
 #include "main/main_session.h"
 #include "telewhite/telewhite_mods.h"
 #include "ui/effects/outline_segments.h"
@@ -24,6 +30,14 @@ namespace {
 // Message is converted only if most of its letters are capital.
 constexpr auto kMinCapsLetters = 4;
 constexpr auto kMinCapsPart = 0.7;
+
+// The text is sent right after its send action is prepared.
+constexpr auto kMentionFreshFor = crl::time(1000);
+
+struct PendingMention {
+	TextWithEntities text;
+	crl::time when = 0;
+};
 
 [[nodiscard]] bool KeepsCase(EntityType type) {
 	switch (type) {
@@ -47,9 +61,96 @@ constexpr auto kMinCapsPart = 0.7;
 	return QString::fromUtf8(text);
 }
 
+[[nodiscard]] PendingMention &Pending() {
+	static auto result = PendingMention();
+	return result;
+}
+
+// @username of the author or a link to him by the name.
+[[nodiscard]] TextWithEntities MentionOf(not_null<PeerData*> from) {
+	const auto username = from->username();
+	if (!username.isEmpty()) {
+		const auto text = u"@"_q + username;
+		auto result = TextWithEntities{ text };
+		result.entities.push_back(
+			EntityInText(EntityType::Mention, 0, int(text.size())));
+		return result;
+	}
+	const auto user = from->asUser();
+	if (!user || user->isInaccessible()) {
+		return TextWithEntities();
+	}
+	const auto name = user->firstName.isEmpty()
+		? user->name()
+		: user->firstName;
+	if (name.isEmpty()) {
+		return TextWithEntities();
+	}
+	auto fields = TextUtilities::MentionNameFields();
+	fields.selfId = user->session().userId().bare;
+	fields.userId = peerToUser(user->id).bare;
+	fields.accessHash = user->accessHash();
+	auto result = TextWithEntities{ name };
+	result.entities.push_back(EntityInText(
+		EntityType::MentionName,
+		0,
+		int(name.size()),
+		TextUtilities::MentionNameDataFromFields(fields)));
+	return result;
+}
+
+// The server doesn't accept a reply to a message deleted there: the reply
+// goes without it (staying in its topic) and the text sent right after
+// starts with a mention of the author of the deleted message.
+void ApplyDeletedReply(Api::SendAction &action) {
+	auto &replyTo = action.replyTo;
+	if (!replyTo.messageId) {
+		return;
+	}
+	const auto history = action.history;
+	const auto item = history->owner().message(replyTo.messageId);
+	if (!item || !IsMarkedDeleted(item)) {
+		return;
+	}
+	replyTo.messageId = replyTo.topicRootId
+		? FullMsgId(history->peer->id, replyTo.topicRootId)
+		: FullMsgId();
+	replyTo.quote = TextWithEntities();
+	replyTo.quoteOffset = 0;
+	replyTo.todoItemId = 0;
+	replyTo.pollOption = QByteArray();
+	replyTo.richQuote = nullptr;
+	const auto from = item->from();
+	if (!Enabled(Mod::MentionDeletedReply) || from->isSelf()) {
+		return;
+	}
+	auto mention = MentionOf(from);
+	if (!mention.empty()) {
+		auto &pending = Pending();
+		pending.text = std::move(mention);
+		pending.when = crl::now();
+	}
+}
+
+void ApplyPendingMention(TextWithEntities &text) {
+	auto &pending = Pending();
+	if (pending.text.empty()) {
+		return;
+	}
+	auto mention = base::take(pending.text);
+	const auto when = base::take(pending.when);
+	if (crl::now() - when > kMentionFreshFor) {
+		return;
+	}
+	mention.append(u" "_q);
+	mention.append(text);
+	text = std::move(mention);
+}
+
 } // namespace
 
 void ApplyAntiCaps(TextWithEntities &text) {
+	ApplyPendingMention(text);
 	if (!Enabled(Mod::AntiCaps)) {
 		return;
 	}
@@ -196,6 +297,51 @@ void SetupStoryRings(rpl::lifetime &lifetime) {
 		OptionValue(Option::StoryRingColor) | rpl::to_empty,
 		style::PaletteChanged()
 	) | rpl::on_next(apply, lifetime);
+}
+
+void ApplyGhostSchedule(Api::SendAction &action) {
+	ApplyDeletedReply(action);
+
+	// Telegram doesn't accept the schedule date too close to now.
+	constexpr auto kDelay = TimeId(12);
+	if (!Enabled(Mod::GhostOnline) || !Enabled(Mod::GhostScheduled)) {
+		return;
+	}
+	const auto &options = action.options;
+	if (options.scheduled
+		|| options.shortcutId
+		|| options.price
+		|| options.starsApproved
+		|| options.suggest.exists
+		|| action.replaceMediaOf) {
+		return;
+	}
+	const auto peer = action.history->peer;
+	if (peer->isSelf()
+		|| peer->isBot()
+		|| peer->isMonoforum()
+		|| peer->isRepliesChat()
+		|| peer->isVerifyCodes()
+		|| peer->starsPerMessageChecked() > 0) {
+		return;
+	}
+	action.options.scheduled = base::unixtime::now() + kDelay;
+}
+
+bool FolderTagsShown(bool serverEnabled) {
+	// Read once: the colors are given to the chats when they load.
+	static const auto local = Enabled(Mod::FolderTags);
+	return serverEnabled || local;
+}
+
+std::optional<uint8> FolderTagColor(const Data::ChatFilter &filter) {
+	constexpr auto kColorsCount = 7;
+	if (const auto color = filter.colorIndex()) {
+		return color;
+	} else if (!filter.id() || !FolderTagsShown(false)) {
+		return std::nullopt;
+	}
+	return uint8(std::abs(int(filter.id())) % kColorsCount);
 }
 
 } // namespace Telewhite
