@@ -26,7 +26,7 @@ constexpr auto kTelewhiteLimit = 1000;
 constexpr auto kMaxRememberedOpenChats = 32;
 
 // Telewhite: "Unlimited search history" keeps far more recent chats.
-[[nodiscard]] int Limit() {
+[[nodiscard]] int TelewhiteSavedRecentLimit() {
 	return Telewhite::Enabled(Telewhite::Mod::UnlimitedSearch)
 		? kTelewhiteLimit
 		: kLimit;
@@ -92,7 +92,9 @@ QByteArray RecentPeers::serialize() const {
 		return {};
 	}
 	auto size = 2 * sizeof(quint32); // AppVersion, count
-	const auto count = std::min(int(_list.size()), Limit());
+	const auto count = std::min(
+		int(_list.size()),
+		TelewhiteSavedRecentLimit());
 	auto &&list = _list | ranges::views::take(count);
 	for (const auto &peer : list) {
 		size += Serialize::peerSize(peer);
