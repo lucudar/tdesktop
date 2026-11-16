@@ -23,6 +23,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "telewhite/telewhite_archive.h"
 #include "telewhite/telewhite_custom_texts.h"
 #include "telewhite/telewhite_deleted.h"
+#include "telewhite/telewhite_local_pins.h"
 #include "telewhite/telewhite_location.h"
 #include "telewhite/telewhite_mods.h"
 #include "telewhite/telewhite_mods_box.h"
@@ -88,7 +89,10 @@ constexpr auto kGhostMods = std::array{
 
 struct ToggleDescriptor {
 	QString id;
-	not_null<const tr::phrase<>*> title;
+
+	// Null when there is no phrase in the language pack, then the text
+	// below is the title.
+	const tr::phrase<> *title = nullptr;
 	Scene scene = Scene::GhostAll;
 	rpl::producer<bool> value;
 	Fn<void(bool)> set;
@@ -102,6 +106,8 @@ struct ToggleDescriptor {
 	bool help = true;
 
 	rpl::producer<bool> shown;
+
+	QString text;
 };
 
 struct GroupStatus {
@@ -198,6 +204,31 @@ rpl::event_stream<> ExcludedFoldersChanges;
 	};
 }
 
+// A toggle without a phrase in the language pack.
+[[nodiscard]] ToggleDescriptor ModToggleText(
+		QString id,
+		QString text,
+		Mod mod,
+		Scene scene,
+		QStringList keywords) {
+	return {
+		.id = std::move(id),
+		.scene = scene,
+		.value = EnabledValue(mod),
+		.set = [=](bool value) { SetEnabled(mod, value); },
+		.keywords = std::move(keywords),
+		.text = std::move(text),
+	};
+}
+
+[[nodiscard]] rpl::producer<QString> ToggleTitle(
+		const ToggleDescriptor &descriptor) {
+	if (const auto title = descriptor.title) {
+		return (*title)();
+	}
+	return rpl::single(descriptor.text);
+}
+
 [[nodiscard]] std::vector<ToggleDescriptor> GroupToggles(
 		Group group,
 		not_null<Main::Session*> session) {
@@ -279,6 +310,15 @@ rpl::event_stream<> ExcludedFoldersChanges;
 			Mod::SaveDeleted,
 			Scene::SaveDeleted,
 			{ u"удалённые"_q, u"удаленные"_q, u"deleted"_q });
+		result.push_back(ModToggleText(
+			u"telewhite/deleted/mention-reply"_q,
+			u"Отмечать автора в ответе на удалённое"_q,
+			Mod::MentionDeletedReply,
+			Scene::SaveDeleted,
+			{ u"ответ"_q, u"упоминание"_q, u"тег"_q, u"username"_q }));
+		result.back().sub = true;
+		result.back().help = false;
+		result.back().shown = EnabledValue(Mod::SaveDeleted);
 		mod(
 			u"deleted/own"_q,
 			&tr::lng_telewhite_mods_keep_own_deleted,
@@ -379,6 +419,13 @@ rpl::event_stream<> ExcludedFoldersChanges;
 			{ u"опрос"_q, u"результаты"_q, u"poll"_q });
 		break;
 	case Group::Premium:
+		result.push_back(ModToggleText(
+			u"telewhite/premium/unlimited-search"_q,
+			u"Безлимитная история поиска"_q,
+			Mod::UnlimitedSearch,
+			Scene::TranslateChats,
+			{ u"поиск"_q, u"история"_q, u"недавние"_q, u"search"_q }));
+		result.back().help = false;
 		result.push_back({
 			.id = u"telewhite/premium/translate"_q,
 			.title = &tr::lng_telewhite_mods_translate_chats,
@@ -698,14 +745,14 @@ QImage HelpButton::prepareRippleMask() const {
 		not_null<Window::SessionController*> controller,
 		ToggleDescriptor &&descriptor) {
 	const auto &st = st::settingsButtonNoIcon;
-	auto result = descriptor.master
+	auto result = (descriptor.master && descriptor.title)
 		? object_ptr<Ui::SettingsButton>(
 			container,
 			(*descriptor.title)(tr::bold),
 			st)
 		: object_ptr<Ui::SettingsButton>(
 			container,
-			(*descriptor.title)(),
+			ToggleTitle(descriptor),
 			st);
 	const auto button = result.data();
 
@@ -756,6 +803,7 @@ void AddToggle(SectionBuilder &builder, ToggleDescriptor &&descriptor) {
 	}
 	const auto id = descriptor.id;
 	const auto title = descriptor.title;
+	const auto text = descriptor.text;
 	const auto keywords = descriptor.keywords;
 	builder.add([taken = std::move(descriptor)](
 			const WidgetContext &ctx) mutable {
@@ -769,7 +817,7 @@ void AddToggle(SectionBuilder &builder, ToggleDescriptor &&descriptor) {
 	}, [=] {
 		return SearchEntry{
 			.id = id,
-			.title = (*title)(tr::now),
+			.title = title ? (*title)(tr::now) : text,
 			.keywords = keywords,
 		};
 	});
@@ -1083,6 +1131,145 @@ void AddTranslatorChoice(SectionBuilder &builder) {
 	});
 }
 
+[[nodiscard]] QString GhostStatusName(GhostStatus status) {
+	switch (status) {
+	case GhostStatus::Typing: return u"«Печатает»"_q;
+	case GhostStatus::Voice: return u"«Записывает голосовое»"_q;
+	case GhostStatus::Round: return u"«Записывает видеосообщение»"_q;
+	case GhostStatus::Photo: return u"«Отправляет фото»"_q;
+	case GhostStatus::Video: return u"«Отправляет видео»"_q;
+	case GhostStatus::File: return u"«Отправляет файл»"_q;
+	case GhostStatus::Sticker: return u"«Выбирает стикер»"_q;
+	case GhostStatus::Location:
+		return u"«Выбирает геопозицию» и «контакт»"_q;
+	case GhostStatus::Game: return u"«Играет»"_q;
+	case GhostStatus::Speaking: return u"«Говорит» в видеочате"_q;
+	case GhostStatus::Emoji:
+		return u"Анимации эмодзи: нажатия и просмотр"_q;
+	case GhostStatus::kCount: break;
+	}
+	Unexpected("Status in Telewhite::GhostStatusName.");
+}
+
+[[nodiscard]] QString GhostStatusesLabel(int visible) {
+	constexpr auto kTotal = int(GhostStatus::kCount);
+	auto hidden = 0;
+	for (auto i = 0; i != kTotal; ++i) {
+		if (!(visible & (1 << i))) {
+			++hidden;
+		}
+	}
+	return (hidden == kTotal)
+		? u"все"_q
+		: !hidden
+		? u"ни одного"_q
+		: (QString::number(hidden) + u" из "_q + QString::number(kTotal));
+}
+
+// Checked statuses are not sent, the others go as usual.
+void GhostStatusesBox(not_null<Ui::GenericBox*> box) {
+	box->setTitle(rpl::single(u"Какие статусы скрывать"_q));
+	box->addRow(object_ptr<Ui::FlatLabel>(
+		box,
+		rpl::single(u"Отмеченные статусы собеседники не увидят. Снимите галочку, и этот статус будет уходить как обычно."_q),
+		st::boxLabel));
+	const auto visible = OptionNow(Option::GhostVisibleStatuses);
+	const auto checks = box->lifetime().make_state<
+		std::vector<not_null<Ui::Checkbox*>>>();
+	for (auto i = 0; i != int(GhostStatus::kCount); ++i) {
+		checks->push_back(box->addRow(
+			object_ptr<Ui::Checkbox>(
+				box,
+				GhostStatusName(GhostStatus(i)),
+				!(visible & (1 << i)),
+				st::defaultBoxCheckbox),
+			st::boxRowPadding + style::margins(
+				0,
+				0,
+				0,
+				st::boxOptionListSkip)));
+	}
+	box->addButton(tr::lng_settings_save(), [=] {
+		auto result = 0;
+		for (auto i = 0; i != int(checks->size()); ++i) {
+			if (!(*checks)[i]->checked()) {
+				result |= (1 << i);
+			}
+		}
+		SetOption(Option::GhostVisibleStatuses, result);
+		box->closeBox();
+	});
+	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+}
+
+void AddGhostStatuses(SectionBuilder &builder) {
+	const auto controller = builder.controller();
+	builder.addButton({
+		.id = u"telewhite/ghost/statuses"_q,
+		.title = rpl::single(u"Какие статусы скрывать"_q),
+		.st = &st::settingsButtonNoIcon,
+		.label = OptionValue(
+			Option::GhostVisibleStatuses
+		) | rpl::map([](int visible) {
+			return GhostStatusesLabel(visible);
+		}),
+		.onClick = [=] {
+			controller->show(Box(GhostStatusesBox));
+		},
+		.keywords = {
+			u"печатает"_q,
+			u"статусы"_q,
+			u"голосовое"_q,
+			u"стикер"_q,
+			u"typing"_q,
+		},
+		.shown = EnabledValue(Mod::GhostTyping),
+	});
+}
+
+void PinsInfoBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Main::Session*> session) {
+	box->setTitle(rpl::single(u"Безлимитные закрепы"_q));
+	const auto &order = session->data().pinnedChatsOrder(
+		static_cast<Data::Folder*>(nullptr));
+	auto tail = 0;
+	for (const auto &key : order) {
+		if (IsPinnedTail(key)) {
+			++tail;
+		}
+	}
+	const auto text = u"Во «Все чаты» и в архиве можно закрепить сколько угодно чатов. "_q
+		+ u"Первые закрепы, сколько разрешает Telegram, синхронизируются с сервером, "_q
+		+ u"остальные хранятся только на этом компьютере и после запуска "_q
+		+ u"сами возвращаются на свои места. В папках закрепы работают как в Telegram."_q
+		+ u"\n\nСейчас закреплено во «Все чаты»: "_q
+		+ QString::number(int(order.size()))
+		+ u", из них только на этом компьютере: "_q
+		+ QString::number(tail)
+		+ u"."_q;
+	box->addRow(object_ptr<Ui::FlatLabel>(
+		box,
+		rpl::single(text),
+		st::boxLabel));
+	box->addButton(tr::lng_box_ok(), [=] { box->closeBox(); });
+}
+
+void AddPinsInfo(SectionBuilder &builder) {
+	const auto controller = builder.controller();
+	const auto session = builder.session();
+	builder.addButton({
+		.id = u"telewhite/premium/pins"_q,
+		.title = rpl::single(u"Безлимитные закрепы"_q),
+		.st = &st::settingsButtonNoIcon,
+		.label = rpl::single(u"всегда вкл."_q),
+		.onClick = [=] {
+			controller->show(Box(PinsInfoBox, session));
+		},
+		.keywords = { u"закреп"_q, u"закрепы"_q, u"лимит"_q, u"pin"_q },
+	});
+}
+
 void AddExclusions(SectionBuilder &builder) {
 	const auto controller = builder.controller();
 	const auto session = builder.session();
@@ -1152,7 +1339,57 @@ void AddExclusions(SectionBuilder &builder) {
 		{ u"исключения"_q, u"изменения"_q });
 }
 
+// The journals of the deleted and the edited messages of all chats.
+void AddJournals(SectionBuilder &builder) {
+	const auto controller = builder.controller();
+	const auto session = builder.session();
+	const auto count = [](int value) {
+		return value ? QString::number(value) : QString();
+	};
+	builder.addSkip();
+	builder.addSubsectionTitle(rpl::single(u"История"_q));
+	builder.addButton({
+		.id = u"telewhite/deleted/journal"_q,
+		.title = rpl::single(u"История удалений"_q),
+		.st = &st::settingsButtonNoIcon,
+		.label = rpl::deferred([=] {
+			return DeletedCountValue(session);
+		}) | rpl::map(count),
+		.onClick = [=] {
+			ShowDeletedJournal(controller);
+		},
+		.keywords = {
+			u"история"_q,
+			u"удалённые"_q,
+			u"удаленные"_q,
+			u"журнал"_q,
+			u"deleted"_q,
+		},
+	});
+	builder.addButton({
+		.id = u"telewhite/deleted/edits-journal"_q,
+		.title = rpl::single(u"История изменений"_q),
+		.st = &st::settingsButtonNoIcon,
+		.label = rpl::deferred([=] {
+			return EditedCountValue(session);
+		}) | rpl::map(count),
+		.onClick = [=] {
+			ShowEditedJournal(controller);
+		},
+		.keywords = {
+			u"история"_q,
+			u"изменённые"_q,
+			u"измененные"_q,
+			u"правки"_q,
+			u"edits"_q,
+		},
+	});
+	builder.addSkip();
+	builder.addDividerText(rpl::single(u"Удалённые и изменённые сообщения всех чатов в одном месте: поиск, личные, группы, каналы и боты отдельно, переход к сообщению. Зажмите текст, чтобы скопировать его с форматированием."_q));
+}
+
 void BuildDeletedExtras(SectionBuilder &builder) {
+	AddJournals(builder);
 	builder.addSkip();
 	builder.addSubsectionTitle(tr::lng_telewhite_mods_deleted_look());
 	AddPercentSlider(
@@ -1651,11 +1888,17 @@ void BuildGroup(SectionBuilder &builder, Group group) {
 		return;
 	}
 	builder.addSkip();
+	if (group == Group::Premium) {
+		AddPinsInfo(builder);
+	}
 	auto toggles = GroupToggles(group, builder.session());
 	for (auto i = 0; i != int(toggles.size()); ++i) {
+		const auto id = toggles[i].id;
 		AddToggle(builder, std::move(toggles[i]));
 		if (group == Group::Location && !i) {
 			AddFakePlace(builder);
+		} else if (id == u"telewhite/ghost/typing"_q) {
+			AddGhostStatuses(builder);
 		}
 	}
 	if (group == Group::Premium) {
