@@ -76,6 +76,7 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::NowPlayingSoundCloud: return "telewhite-now-playing-soundcloud";
 	case Mod::GhostScheduled: return "telewhite-ghost-scheduled";
 	case Mod::FolderTags: return "telewhite-folder-tags";
+	case Mod::GlassUi: return "telewhite-glass-ui";
 	case Mod::kCount: break;
 	}
 	Unexpected("Mod in Telewhite::Key.");
@@ -91,7 +92,8 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::NowPlayingBio:
 	case Mod::NowPlayingProfile:
 	case Mod::NowPlayingSoundCloud:
-	case Mod::GhostReadOnReply: return true;
+	case Mod::GhostReadOnReply:
+	case Mod::GlassUi: return true;
 	default: return false;
 	}
 }
@@ -254,7 +256,8 @@ bool CountedInBanner(Mod mod) {
 	case Mod::NowPlayingProfile:
 	case Mod::NowPlayingSoundCloud:
 	case Mod::GhostScheduled:
-	case Mod::GhostReadOnReply: return false;
+	case Mod::GhostReadOnReply:
+	case Mod::GlassUi: return false;
 	default: return true;
 	}
 }

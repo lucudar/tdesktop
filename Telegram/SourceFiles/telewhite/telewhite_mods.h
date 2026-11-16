@@ -68,6 +68,7 @@ enum class Mod {
 	NowPlayingSoundCloud,
 	GhostScheduled,
 	FolderTags,
+	GlassUi,
 
 	kCount,
 };
