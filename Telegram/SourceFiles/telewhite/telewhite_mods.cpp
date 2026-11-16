@@ -77,6 +77,8 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::GhostScheduled: return "telewhite-ghost-scheduled";
 	case Mod::FolderTags: return "telewhite-folder-tags";
 	case Mod::GlassUi: return "telewhite-glass-ui";
+	case Mod::UnlimitedSearch: return "telewhite-unlimited-search";
+	case Mod::MentionDeletedReply: return "telewhite-mention-deleted-reply";
 	case Mod::kCount: break;
 	}
 	Unexpected("Mod in Telewhite::Key.");
@@ -93,7 +95,9 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::NowPlayingProfile:
 	case Mod::NowPlayingSoundCloud:
 	case Mod::GhostReadOnReply:
-	case Mod::GlassUi: return true;
+	case Mod::GlassUi:
+	case Mod::UnlimitedSearch:
+	case Mod::MentionDeletedReply: return true;
 	default: return false;
 	}
 }
@@ -113,6 +117,8 @@ constexpr auto kOptionsCount = int(Option::kCount);
 	case Option::Translator: return "telewhite-translator";
 	case Option::FakeCity: return "telewhite-fake-city";
 	case Option::TranslateSendTo: return "telewhite-translate-send-to";
+	case Option::GhostVisibleStatuses:
+		return "telewhite-ghost-visible-statuses";
 	case Option::kCount: break;
 	}
 	Unexpected("Option in Telewhite::Key.");
@@ -289,6 +295,14 @@ TimeId AutoClearSeconds(AutoClearPeriod period) {
 	case AutoClearPeriod::Year: return 365 * kDay;
 	}
 	return 0;
+}
+
+bool GhostStatusHidden(GhostStatus status) {
+	if (!Enabled(Mod::GhostTyping)) {
+		return false;
+	}
+	const auto visible = OptionNow(Option::GhostVisibleStatuses);
+	return !(visible & (1 << int(status)));
 }
 
 bool Enabled(Mod mod) {

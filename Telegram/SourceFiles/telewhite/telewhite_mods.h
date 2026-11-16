@@ -69,6 +69,8 @@ enum class Mod {
 	GhostScheduled,
 	FolderTags,
 	GlassUi,
+	UnlimitedSearch,
+	MentionDeletedReply,
 
 	kCount,
 };
@@ -84,6 +86,7 @@ enum class Option {
 	Translator, // TranslatorKind.
 	FakeCity, // Index in the cities list, -1 - custom point.
 	TranslateSendTo, // Index in SendLanguageNames().
+	GhostVisibleStatuses, // Bits of GhostStatus left visible to others.
 
 	kCount,
 };
@@ -100,6 +103,21 @@ enum class AutoClearPeriod {
 enum class TranslatorKind {
 	Telegram,
 	Google,
+};
+
+// The statuses hidden by "Don't send typing", each can be left visible.
+enum class GhostStatus {
+	Typing,
+	Voice,
+	Round,
+	Media,
+	File,
+	Sticker,
+	Location,
+	Game,
+	Speaking,
+
+	kCount,
 };
 
 void LoadMods(not_null<Core::Settings*> settings);
@@ -120,6 +138,9 @@ void SetEnabled(Mod mod, bool enabled);
 void SetOption(Option option, int value);
 
 [[nodiscard]] TimeId AutoClearSeconds(AutoClearPeriod period);
+
+// Ghost mode with "Don't send typing" doesn't send this status.
+[[nodiscard]] bool GhostStatusHidden(GhostStatus status);
 
 // Ghost mode keeps "listened" of voice / round messages local,
 // but self-destructing media are still reported as opened.
