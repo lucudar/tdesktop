@@ -263,6 +263,7 @@ bool CountedInBanner(Mod mod) {
 	case Mod::NowPlayingSoundCloud:
 	case Mod::GhostScheduled:
 	case Mod::GhostReadOnReply:
+	case Mod::MentionDeletedReply:
 	case Mod::GlassUi: return false;
 	default: return true;
 	}

@@ -110,12 +110,14 @@ enum class GhostStatus {
 	Typing,
 	Voice,
 	Round,
-	Media,
+	Photo,
+	Video,
 	File,
 	Sticker,
 	Location,
 	Game,
 	Speaking,
+	Emoji, // Taps on the animated emoji and watching the taps.
 
 	kCount,
 };

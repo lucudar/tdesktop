@@ -34,8 +34,8 @@ constexpr auto kSendTypingsToOfflineFor = TimeId(30);
 	case Type::RecordRound:
 	case Type::UploadRound: return Status::Round;
 	case Type::RecordVideo:
-	case Type::UploadVideo:
-	case Type::UploadPhoto: return Status::Media;
+	case Type::UploadVideo: return Status::Video;
+	case Type::UploadPhoto: return Status::Photo;
 	case Type::UploadFile: return Status::File;
 	case Type::ChooseSticker: return Status::Sticker;
 	case Type::ChooseLocation:
