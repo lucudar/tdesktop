@@ -35,8 +35,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/boxes/choose_font_box.h"
 #include "ui/boxes/single_choice_box.h"
 #include "ui/chat/chat_theme.h"
+#include "ui/effects/animation_value.h"
 #include "ui/effects/ripple_animation.h"
 #include "ui/layers/generic_box.h"
+#include "ui/painter.h"
+#include "ui/text/text.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/checkbox.h"
 #include "ui/widgets/continuous_sliders.h"
@@ -99,7 +102,8 @@ struct ToggleDescriptor {
 	QStringList keywords;
 	bool master = false;
 
-	// Sub-option of the previous toggle, not counted in the group status.
+	// Sub-option of the previous toggle: shown nested under it and
+	// not counted in the group status.
 	bool sub = false;
 
 	// Small "?" button with the "how it works" box.
@@ -153,7 +157,7 @@ rpl::event_stream<> ExcludedFoldersChanges;
 	case Group::Location: return &st::menuIconAddress;
 	case Group::Streamer: return &st::menuIconStartStream;
 	case Group::Design: return &st::menuIconPalette;
-	case Group::Texts: return &st::menuIconEdit;
+	case Group::Texts: return &st::menuIconFont;
 	}
 	Unexpected("Group in Telewhite::GroupIcon.");
 }
@@ -175,6 +179,155 @@ rpl::event_stream<> ExcludedFoldersChanges;
 	case Group::Texts: return tr::lng_telewhite_mods_texts_about();
 	}
 	Unexpected("Group in Telewhite::GroupAbout.");
+}
+
+// One line under the group title in the list of the groups.
+[[nodiscard]] QString GroupSubtitle(Group group) {
+	switch (group) {
+	case Group::Ghost:
+		return u"Прочитано, печатает, в\u00A0сети и\u00A0истории"_q;
+	case Group::Deleted:
+		return u"Сохранение, журнал, вид и\u00A0исключения"_q;
+	case Group::Forward:
+		return u"Без автора и\u00A0сразу в\u00A0несколько чатов"_q;
+	case Group::Sending:
+		return u"Подтверждения, анти-капс и\u00A0стикеры без набора"_q;
+	case Group::Chats:
+		return u"Спойлеры, ограничения и\u00A0результаты опросов"_q;
+	case Group::Premium:
+		return u"Закрепы, поиск, перевод и\u00A0метки папок"_q;
+	case Group::Clean:
+		return u"Без историй, рекламы, статусов и\u00A0Premium"_q;
+	case Group::Profile:
+		return u"Точный онлайн, секунды и\u00A0дата регистрации"_q;
+	case Group::Music: return u"Трек в\u00A0профиле"_q;
+	case Group::Location: return u"Подмена места"_q;
+	case Group::Streamer:
+		return u"Окна не\u00A0попадают в\u00A0запись и\u00A0скриншоты"_q;
+	case Group::Design:
+		return u"Темы, иконка, шрифт, стекло и\u00A0снег"_q;
+	case Group::Texts:
+		return u"Свой текст вместо «в\u00A0сети», «печатает» и\u00A0других"_q;
+	}
+	Unexpected("Group in Telewhite::GroupSubtitle.");
+}
+
+// A row of the groups list: an icon, the title with one line of
+// the description under it, the state on the right and an arrow.
+class NavRow final : public Ui::RippleButton {
+public:
+	NavRow(
+		QWidget *parent,
+		not_null<const style::icon*> icon,
+		rpl::producer<QString> title,
+		rpl::producer<QString> about,
+		rpl::producer<GroupStatus> status);
+
+protected:
+	int resizeGetHeight(int newWidth) override;
+	void paintEvent(QPaintEvent *e) override;
+	void onStateChanged(State was, StateChangeSource source) override;
+
+private:
+	const style::SettingsButton &_st;
+	const not_null<const style::icon*> _icon;
+	Ui::Text::String _title;
+	Ui::Text::String _about;
+	Ui::Text::String _status;
+	bool _active = false;
+
+};
+
+NavRow::NavRow(
+	QWidget *parent,
+	not_null<const style::icon*> icon,
+	rpl::producer<QString> title,
+	rpl::producer<QString> about,
+	rpl::producer<GroupStatus> status)
+: RippleButton(parent, st::settingsButton.ripple)
+, _st(st::settingsButton)
+, _icon(icon) {
+	setCursor(style::cur_pointer);
+	std::move(
+		title
+	) | rpl::on_next([=](const QString &text) {
+		_title.setText(_st.style, text);
+		setAccessibleName(text);
+		update();
+	}, lifetime());
+	std::move(
+		about
+	) | rpl::on_next([=](const QString &text) {
+		_about.setText(st::defaultTextStyle, text);
+		update();
+	}, lifetime());
+	if (status) {
+		std::move(
+			status
+		) | rpl::on_next([=](const GroupStatus &now) {
+			_status.setText(st::defaultTextStyle, now.text);
+			_active = now.active;
+			update();
+		}, lifetime());
+	}
+	resize(width(), resizeGetHeight(width()));
+}
+
+int NavRow::resizeGetHeight(int) {
+	return _st.padding.top()
+		+ _st.height
+		+ st::defaultTextStyle.font->height
+		+ _st.padding.bottom()
+		+ style::ConvertScale(4);
+}
+
+void NavRow::paintEvent(QPaintEvent *e) {
+	auto p = Painter(this);
+	const auto over = isOver() || isDown();
+	p.fillRect(e->rect(), over ? _st.textBgOver : _st.textBg);
+	paintRipple(p, 0, 0);
+
+	const auto outer = width();
+	const auto full = height();
+	_icon->paint(p, _st.iconLeft, (full - _icon->height()) / 2, outer);
+
+	const auto &arrow = over
+		? st::settingsPremiumArrowOver
+		: st::settingsPremiumArrow;
+	const auto arrowLeft = outer
+		- st::settingsButtonRightSkip
+		- arrow.width();
+	arrow.paint(p, arrowLeft, (full - arrow.height()) / 2, outer);
+
+	const auto skip = st::settingsButtonRightSkip / 2;
+	const auto left = _st.padding.left();
+	auto right = arrowLeft - skip;
+	if (!_status.isEmpty()) {
+		const auto statusWidth = std::min(
+			_status.maxWidth(),
+			std::max((right - left) / 2, 0));
+		const auto &statusFont = st::defaultTextStyle.font;
+		p.setPen(_active ? st::windowActiveTextFg : st::windowSubTextFg);
+		_status.drawLeftElided(
+			p,
+			right - statusWidth,
+			(full - statusFont->height) / 2,
+			statusWidth,
+			outer);
+		right -= statusWidth + skip;
+	}
+	const auto available = std::max(right - left, 0);
+	const auto lines = _st.height + st::defaultTextStyle.font->height;
+	const auto top = (full - lines) / 2;
+	p.setPen(over ? _st.textFgOver : _st.textFg);
+	_title.drawLeftElided(p, left, top, available, outer);
+	p.setPen(st::windowSubTextFg);
+	_about.drawLeftElided(p, left, top + _st.height, available, outer);
+}
+
+void NavRow::onStateChanged(State was, StateChangeSource source) {
+	RippleButton::onStateChanged(was, source);
+	update();
 }
 
 [[nodiscard]] rpl::producer<bool> GhostAllValue() {
@@ -740,11 +893,40 @@ QImage HelpButton::prepareRippleMask() const {
 	return Ui::RippleAnimation::EllipseMask(size());
 }
 
+// Sub-options are shifted right and joined to their parent by a thin
+// vertical line, so it is clear what they belong to.
+[[nodiscard]] const style::SettingsButton &NestedButtonStyle() {
+	static const auto result = [] {
+		auto copy = st::settingsButtonNoIcon;
+		copy.padding.setLeft(
+			copy.padding.left() + style::ConvertScale(18));
+		return copy;
+	}();
+	return result;
+}
+
+void AddNestedRail(not_null<Ui::RpWidget*> row) {
+	row->paintRequest(
+	) | rpl::on_next([=] {
+		auto p = QPainter(row.get());
+		const auto line = std::max(style::ConvertScale(2), 1);
+		p.fillRect(
+			QRect(
+				st::settingsButtonNoIcon.padding.left() + line,
+				0,
+				line,
+				row->height()),
+			anim::with_alpha(st::windowSubTextFg->c, 0.3));
+	}, row->lifetime());
+}
+
 [[nodiscard]] object_ptr<Ui::RpWidget> CreateToggle(
 		not_null<Ui::VerticalLayout*> container,
 		not_null<Window::SessionController*> controller,
 		ToggleDescriptor &&descriptor) {
-	const auto &st = st::settingsButtonNoIcon;
+	const auto &st = descriptor.sub
+		? NestedButtonStyle()
+		: st::settingsButtonNoIcon;
 	auto result = (descriptor.master && descriptor.title)
 		? object_ptr<Ui::SettingsButton>(
 			container,
@@ -755,6 +937,9 @@ QImage HelpButton::prepareRippleMask() const {
 			ToggleTitle(descriptor),
 			st);
 	const auto button = result.data();
+	if (descriptor.sub) {
+		AddNestedRail(button);
+	}
 
 	const auto state = button->lifetime().make_state<rpl::variable<bool>>(
 		std::move(descriptor.value));
@@ -831,6 +1016,7 @@ struct ChoiceDescriptor {
 	QStringList keywords;
 	Fn<void(int)> changed;
 	rpl::producer<bool> shown;
+	bool nested = false;
 };
 
 void AddChoice(SectionBuilder &builder, ChoiceDescriptor &&descriptor) {
@@ -839,14 +1025,15 @@ void AddChoice(SectionBuilder &builder, ChoiceDescriptor &&descriptor) {
 	const auto option = descriptor.option;
 	const auto options = std::move(descriptor.options);
 	const auto changed = std::move(descriptor.changed);
+	const auto nested = descriptor.nested;
 	const auto count = int(options.size());
 	const auto index = [=](int value) {
 		return std::clamp(value, 0, count - 1);
 	};
-	builder.addButton({
+	const auto button = builder.addButton({
 		.id = std::move(descriptor.id),
 		.title = (*title)(),
-		.st = &st::settingsButtonNoIcon,
+		.st = (nested ? &NestedButtonStyle() : &st::settingsButtonNoIcon),
 		.label = OptionValue(option) | rpl::map([=](int value) {
 			return options[index(value)];
 		}),
@@ -868,6 +1055,9 @@ void AddChoice(SectionBuilder &builder, ChoiceDescriptor &&descriptor) {
 		.keywords = std::move(descriptor.keywords),
 		.shown = std::move(descriptor.shown),
 	});
+	if (nested && button) {
+		AddNestedRail(button);
+	}
 }
 
 // Transparency in percents, 0 - 90, smooth: one percent per step.
@@ -1160,9 +1350,9 @@ void AddTranslatorChoice(SectionBuilder &builder) {
 		}
 	}
 	return (hidden == kTotal)
-		? u"все"_q
+		? u"Все"_q
 		: !hidden
-		? u"ни одного"_q
+		? u"Ни одного"_q
 		: (QString::number(hidden) + u" из "_q + QString::number(kTotal));
 }
 
@@ -1204,10 +1394,10 @@ void GhostStatusesBox(not_null<Ui::GenericBox*> box) {
 
 void AddGhostStatuses(SectionBuilder &builder) {
 	const auto controller = builder.controller();
-	builder.addButton({
+	const auto button = builder.addButton({
 		.id = u"telewhite/ghost/statuses"_q,
 		.title = rpl::single(u"Какие статусы скрывать"_q),
-		.st = &st::settingsButtonNoIcon,
+		.st = &NestedButtonStyle(),
 		.label = OptionValue(
 			Option::GhostVisibleStatuses
 		) | rpl::map([](int visible) {
@@ -1225,6 +1415,9 @@ void AddGhostStatuses(SectionBuilder &builder) {
 		},
 		.shown = EnabledValue(Mod::GhostTyping),
 	});
+	if (button) {
+		AddNestedRail(button);
+	}
 }
 
 void PinsInfoBox(
@@ -1262,7 +1455,7 @@ void AddPinsInfo(SectionBuilder &builder) {
 		.id = u"telewhite/premium/pins"_q,
 		.title = rpl::single(u"Безлимитные закрепы"_q),
 		.st = &st::settingsButtonNoIcon,
-		.label = rpl::single(u"всегда вкл."_q),
+		.label = rpl::single(u"Всегда вкл"_q),
 		.onClick = [=] {
 			controller->show(Box(PinsInfoBox, session));
 		},
@@ -1273,7 +1466,6 @@ void AddPinsInfo(SectionBuilder &builder) {
 void AddExclusions(SectionBuilder &builder) {
 	const auto controller = builder.controller();
 	const auto session = builder.session();
-	builder.addSubsectionTitle(tr::lng_telewhite_mods_exclusions());
 	const auto exclude = [&](
 			const QString &id,
 			not_null<const tr::phrase<>*> title,
@@ -1285,7 +1477,6 @@ void AddExclusions(SectionBuilder &builder) {
 			mod,
 			Scene::SaveDeleted,
 			std::move(keywords));
-		toggle.sub = true;
 		toggle.help = false;
 		AddToggle(builder, std::move(toggle));
 	};
@@ -1339,90 +1530,87 @@ void AddExclusions(SectionBuilder &builder) {
 		{ u"исключения"_q, u"изменения"_q });
 }
 
-// The journals of the deleted and the edited messages of all chats.
-void AddJournals(SectionBuilder &builder) {
-	const auto controller = builder.controller();
-	const auto session = builder.session();
-	const auto count = [](int value) {
-		return value ? QString::number(value) : QString();
-	};
-	builder.addSkip();
-	builder.addSubsectionTitle(rpl::single(u"История"_q));
-	builder.addButton({
-		.id = u"telewhite/deleted/journal"_q,
-		.title = rpl::single(u"История удалений"_q),
-		.st = &st::settingsButtonNoIcon,
-		.label = rpl::deferred([=] {
-			return DeletedCountValue(session);
-		}) | rpl::map(count),
-		.onClick = [=] {
-			ShowDeletedJournal(controller);
-		},
-		.keywords = {
-			u"история"_q,
-			u"удалённые"_q,
-			u"удаленные"_q,
-			u"журнал"_q,
-			u"deleted"_q,
-		},
-	});
-	builder.addButton({
-		.id = u"telewhite/deleted/edits-journal"_q,
-		.title = rpl::single(u"История изменений"_q),
-		.st = &st::settingsButtonNoIcon,
-		.label = rpl::deferred([=] {
-			return EditedCountValue(session);
-		}) | rpl::map(count),
-		.onClick = [=] {
-			ShowEditedJournal(controller);
-		},
-		.keywords = {
-			u"история"_q,
-			u"изменённые"_q,
-			u"измененные"_q,
-			u"правки"_q,
-			u"edits"_q,
-		},
-	});
-	builder.addSkip();
-	builder.addDividerText(rpl::single(u"Удалённые и изменённые сообщения всех чатов в одном месте: поиск, личные, группы, каналы и боты отдельно, переход к сообщению. Зажмите текст, чтобы скопировать его с форматированием."_q));
+// "123 сообщения" under the journal title, or why it is empty.
+[[nodiscard]] QString JournalText(int count, bool saving) {
+	if (count <= 0) {
+		return saving
+			? u"Пока пусто"_q
+			: u"Сохранение выключено"_q;
+	}
+	const auto mod10 = count % 10;
+	const auto mod100 = count % 100;
+	const auto word = (mod10 == 1 && mod100 != 11)
+		? u"сообщение"_q
+		: (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14))
+		? u"сообщения"_q
+		: u"сообщений"_q;
+	auto number = QString::number(count);
+	for (auto i = int(number.size()) - 3; i > 0; i -= 3) {
+		number.insert(i, QChar(0x00A0));
+	}
+	return number + QChar(0x00A0) + word;
 }
 
-void BuildDeletedExtras(SectionBuilder &builder) {
-	AddJournals(builder);
-	builder.addSkip();
-	builder.addSubsectionTitle(tr::lng_telewhite_mods_deleted_look());
-	AddPercentSlider(
-		builder,
-		u"telewhite/deleted/transparency"_q,
-		&tr::lng_telewhite_mods_deleted_transparency,
-		Option::DeletedTransparency);
-	AddPercentSlider(
-		builder,
-		u"telewhite/deleted/versions-transparency"_q,
-		&tr::lng_telewhite_mods_versions_transparency,
-		Option::VersionsTransparency);
-	AddChoice(builder, {
-		.id = u"telewhite/deleted/auto-clear"_q,
-		.title = &tr::lng_telewhite_mods_auto_clear,
-		.option = Option::AutoClear,
-		.options = {
-			tr::lng_telewhite_mods_auto_clear_never(tr::now),
-			tr::lng_telewhite_mods_auto_clear_day(tr::now),
-			tr::lng_telewhite_mods_auto_clear_week(tr::now),
-			tr::lng_telewhite_mods_auto_clear_month(tr::now),
-			tr::lng_telewhite_mods_auto_clear_three_months(tr::now),
-			tr::lng_telewhite_mods_auto_clear_year(tr::now),
-		},
-		.keywords = { u"автоочистка"_q, u"очистка"_q, u"clear"_q },
-		.changed = [](int) { PruneArchives(); },
+// Opens the journal of the deleted or the edited messages of all chats.
+void AddJournalRow(SectionBuilder &builder, bool edited, bool indexed) {
+	const auto id = edited
+		? u"telewhite/deleted/edits-journal"_q
+		: u"telewhite/deleted/journal"_q;
+	const auto title = edited
+		? u"История изменений"_q
+		: u"История удалений"_q;
+	auto widget = [=](const WidgetContext &ctx) {
+		const auto controller = ctx.controller;
+		const auto session = &controller->session();
+		auto value = edited
+			? EditedCountValue(session)
+			: DeletedCountValue(session);
+		auto about = rpl::combine(
+			std::move(value),
+			EnabledValue(edited ? Mod::EditHistory : Mod::SaveDeleted)
+		) | rpl::map([](int amount, bool saving) {
+			return JournalText(amount, saving);
+		});
+		auto row = object_ptr<NavRow>(
+			ctx.container,
+			edited ? &st::menuIconEdit : &st::menuIconRestore,
+			rpl::single(title),
+			std::move(about),
+			rpl::producer<GroupStatus>());
+		row->setClickedCallback([=] {
+			if (edited) {
+				ShowEditedJournal(controller);
+			} else {
+				ShowDeletedJournal(controller);
+			}
+		});
+		return SectionBuilder::WidgetToAdd{ .widget = std::move(row) };
+	};
+	if (!indexed) {
+		builder.add(std::move(widget));
+		return;
+	}
+	builder.add(std::move(widget), [=] {
+		return SearchEntry{
+			.id = id,
+			.title = title,
+			.keywords = edited
+				? QStringList{
+					u"история"_q,
+					u"изменённые"_q,
+					u"измененные"_q,
+					u"правки"_q,
+					u"edits"_q,
+				}
+				: QStringList{
+					u"история"_q,
+					u"удалённые"_q,
+					u"удаленные"_q,
+					u"журнал"_q,
+					u"deleted"_q,
+				},
+		};
 	});
-	builder.addSkip();
-	builder.addDividerText(tr::lng_telewhite_mods_deleted_look_about());
-	builder.addSkip();
-	AddExclusions(builder);
-	builder.addSkip();
-	builder.addDividerText(tr::lng_telewhite_mods_exclusions_about());
 }
 
 void AddFontButton(SectionBuilder &builder) {
@@ -1491,73 +1679,73 @@ void AddDesignToggle(
 		std::move(keywords)));
 }
 
-[[nodiscard]] Type GroupId(Group group);
-
-[[nodiscard]] object_ptr<Ui::RpWidget> CreateGroupRow(
-		not_null<Ui::VerticalLayout*> container,
-		Group group,
-		rpl::producer<GroupStatus> status,
-		Fn<void(Type)> showOther) {
-	const auto &st = st::settingsButton;
-	auto result = CreateButtonWithIcon(
-		container,
-		(*GroupTitle(group))(),
-		st,
-		{ .icon = GroupIcon(group) });
-	const auto button = result.data();
-
-	const auto arrow = Ui::CreateChild<Ui::IconButton>(
-		button,
-		st::backButton);
-	arrow->setIconOverride(
-		&st::settingsPremiumArrow,
-		&st::settingsPremiumArrowOver);
-	arrow->setAttribute(Qt::WA_TransparentForMouseEvents);
-	button->sizeValue(
-	) | rpl::on_next([=](QSize size) {
-		const auto &point = st::settingsPremiumArrowShift;
-		arrow->moveToRight(
-			-point.x(),
-			point.y() + (size.height() - arrow->height()) / 2);
-	}, arrow->lifetime());
-
-	const auto label = Ui::CreateChild<Ui::FlatLabel>(
-		button,
-		st.rightLabel);
-	label->setAttribute(Qt::WA_TransparentForMouseEvents);
-	rpl::combine(
-		button->widthValue(),
-		std::move(status)
-	) | rpl::on_next([=, &st](int width, const GroupStatus &now) {
-		label->setText(now.text);
-		label->setTextColorOverride(now.active
-			? std::optional<QColor>()
-			: std::make_optional(st::windowSubTextFg->c));
-		const auto right = st::settingsButtonRightSkip
-			+ st::settingsPremiumArrow.width();
-		label->resizeToNaturalWidth(width / 2);
-		label->moveToRight(right, st.padding.top(), width);
-	}, label->lifetime());
-
-	const auto id = GroupId(group);
-	button->setClickedCallback([=] {
-		showOther(id);
-	});
-	return result;
+// Settings go in blocks: an optional title, the rows and a divider,
+// with a short footer text when there is something to explain.
+void OpenBlock(SectionBuilder &builder, const QString &title = QString()) {
+	builder.addSkip();
+	if (!title.isEmpty()) {
+		builder.addSubsectionTitle(rpl::single(title));
+	}
 }
+
+void EndBlock(
+		SectionBuilder &builder,
+		rpl::producer<QString> about = nullptr) {
+	builder.addSkip();
+	if (about) {
+		builder.addDividerText(std::move(about));
+	} else {
+		builder.addDivider();
+	}
+}
+
+void AddToggleById(
+		SectionBuilder &builder,
+		std::vector<ToggleDescriptor> &toggles,
+		const QString &id) {
+	const auto full = QString(u"telewhite/"_q + id);
+	for (auto &toggle : toggles) {
+		if (!toggle.id.isEmpty() && toggle.id == full) {
+			auto taken = std::move(toggle);
+			toggle.id = QString();
+			AddToggle(builder, std::move(taken));
+			return;
+		}
+	}
+}
+
+// The toggles not placed into the blocks by id, so none is lost.
+void AddRestToggles(
+		SectionBuilder &builder,
+		std::vector<ToggleDescriptor> &toggles) {
+	for (auto &toggle : toggles) {
+		if (!toggle.id.isEmpty()) {
+			auto taken = std::move(toggle);
+			toggle.id = QString();
+			AddToggle(builder, std::move(taken));
+		}
+	}
+}
+
+[[nodiscard]] Type GroupId(Group group);
 
 void AddGroupRow(SectionBuilder &builder, Group group) {
 	if (!GroupShown(group)) {
 		return;
 	}
 	builder.add([=](const WidgetContext &ctx) {
-		return SectionBuilder::WidgetToAdd{
-			.widget = CreateGroupRow(
-				ctx.container,
-				group,
-				GroupStatusValue(group, &ctx.controller->session()),
-				ctx.showOther),
-		};
+		auto row = object_ptr<NavRow>(
+			ctx.container,
+			GroupIcon(group),
+			(*GroupTitle(group))(),
+			rpl::single(GroupSubtitle(group)),
+			GroupStatusValue(group, &ctx.controller->session()));
+		const auto showOther = ctx.showOther;
+		const auto id = GroupId(group);
+		row->setClickedCallback([=] {
+			showOther(id);
+		});
+		return SectionBuilder::WidgetToAdd{ .widget = std::move(row) };
 	});
 }
 
@@ -1680,10 +1868,9 @@ void BuildDesign(SectionBuilder &builder) {
 		u"telewhite/design/dark"_q,
 		tr::lng_telewhite_mods_themes_dark(),
 		DarkThemes());
-	builder.addSkip();
-	builder.addDividerText(GroupAbout(Group::Design));
+	EndBlock(builder, GroupAbout(Group::Design));
 
-	builder.addSkip();
+	OpenBlock(builder);
 	builder.addSubsectionTitle(tr::lng_telewhite_mods_app());
 	AddDesignToggle(
 		builder,
@@ -1692,11 +1879,18 @@ void BuildDesign(SectionBuilder &builder) {
 		Mod::ThemedIcon,
 		Scene::ThemedIcon,
 		{ u"иконка"_q, u"значок"_q, u"icon"_q });
+	auto glass = ModToggleText(
+		u"telewhite/design/glass"_q,
+		u"Стеклянный интерфейс"_q,
+		Mod::GlassUi,
+		Scene::ThemedIcon,
+		{ u"стекло"_q, u"стеклянный"_q, u"плашки"_q, u"glass"_q });
+	glass.help = false;
+	AddToggle(builder, std::move(glass));
 	AddFontButton(builder);
-	builder.addSkip();
-	builder.addDividerText(tr::lng_telewhite_mods_app_about());
+	EndBlock(builder, tr::lng_telewhite_mods_app_about());
 
-	builder.addSkip();
+	OpenBlock(builder);
 	builder.addSubsectionTitle(tr::lng_telewhite_mods_chats_look());
 	AddDesignToggle(
 		builder,
@@ -1733,10 +1927,9 @@ void BuildDesign(SectionBuilder &builder) {
 			Mod::HideStoryRings
 		) | rpl::map([](bool hidden) { return !hidden; }),
 	});
-	builder.addSkip();
-	builder.addDividerText(tr::lng_telewhite_mods_chats_look_about());
+	EndBlock(builder, tr::lng_telewhite_mods_chats_look_about());
 
-	builder.addSkip();
+	OpenBlock(builder);
 	builder.addSubsectionTitle(tr::lng_telewhite_mods_effects());
 	AddDesignToggle(
 		builder,
@@ -1772,6 +1965,7 @@ void BuildDesign(SectionBuilder &builder) {
 		},
 		.keywords = { u"снег"_q, u"плотность"_q, u"метель"_q },
 		.shown = snowShown(),
+		.nested = true,
 	});
 	AddChoice(builder, {
 		.id = u"telewhite/design/snow-speed"_q,
@@ -1785,9 +1979,9 @@ void BuildDesign(SectionBuilder &builder) {
 		},
 		.keywords = { u"снег"_q, u"скорость"_q },
 		.shown = snowShown(),
+		.nested = true,
 	});
-	builder.addSkip();
-	builder.addDividerText(tr::lng_telewhite_mods_effects_about());
+	EndBlock(builder, tr::lng_telewhite_mods_effects_about());
 }
 
 void BuildMusicExtras(SectionBuilder &builder) {
@@ -1846,7 +2040,7 @@ void CustomTextBox(not_null<Ui::GenericBox*> box, QByteArray key) {
 		SetCustomText(key, QString());
 		box->closeBox();
 	});
-    box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
 }
 
 void BuildCustomTexts(SectionBuilder &builder) {
@@ -1872,79 +2066,231 @@ void BuildCustomTexts(SectionBuilder &builder) {
 			.keywords = { u"надписи"_q, u"статус"_q, u"печатает"_q, u"в сети"_q },
 		});
 	}
-	builder.addSkip();
-	builder.addDividerText(GroupAbout(Group::Texts));
+	EndBlock(builder, GroupAbout(Group::Texts));
+}
+
+void BuildGhost(SectionBuilder &builder) {
+	auto toggles = GroupToggles(Group::Ghost, builder.session());
+	const auto take = [&](const QString &id) {
+		AddToggleById(builder, toggles, id);
+	};
+
+	OpenBlock(builder);
+	take(u"ghost/all"_q);
+	EndBlock(builder, rpl::single(u"Включает и\u00A0выключает всё, что ниже. Каждую часть можно настроить отдельно."_q));
+
+	OpenBlock(builder, u"Прочтение"_q);
+	take(u"ghost/read"_q);
+	take(u"ghost/read-on-reply"_q);
+	EndBlock(builder, rpl::single(u"Когда вы сами пишете в\u00A0чат, сервер отмечает его прочитанным. Отметить чат прочитанным вручную можно в\u00A0его меню."_q));
+
+	OpenBlock(builder, u"Статусы активности"_q);
+	take(u"ghost/typing"_q);
+	AddGhostStatuses(builder);
+	EndBlock(builder, rpl::single(u"Можно скрыть только часть статусов, а\u00A0остальные оставить, например «записывает голосовое»."_q));
+
+	OpenBlock(builder, u"В сети и истории"_q);
+	take(u"ghost/online"_q);
+	take(u"ghost/scheduled"_q);
+	take(u"ghost/stories"_q);
+	AddRestToggles(builder, toggles);
+	EndBlock(builder, rpl::single(u"С\u00A0«Отправлять отложенными» сообщения уходят через 12\u00A0секунд как запланированные, и\u00A0вас не\u00A0видно в\u00A0сети даже в\u00A0момент отправки."_q));
+}
+
+void BuildDeleted(SectionBuilder &builder) {
+	auto toggles = GroupToggles(Group::Deleted, builder.session());
+	const auto take = [&](const QString &id) {
+		AddToggleById(builder, toggles, id);
+	};
+
+	OpenBlock(builder, u"Журнал"_q);
+	AddJournalRow(builder, false, true);
+	AddJournalRow(builder, true, true);
+	EndBlock(builder, rpl::single(u"Сообщения всех чатов в\u00A0одном месте: поиск, вкладки по типам чатов и\u00A0переход к\u00A0сообщению. Зажмите текст, чтобы скопировать его с\u00A0форматированием."_q));
+
+	OpenBlock(builder, u"Удалённые"_q);
+	take(u"deleted/save"_q);
+	take(u"deleted/mention-reply"_q);
+	take(u"deleted/own"_q);
+	take(u"deleted/timer"_q);
+	EndBlock(builder, rpl::single(u"Удалённое собеседником сообщение остаётся в\u00A0чате бледным, с\u00A0корзинкой у\u00A0времени. Фото, видео и\u00A0голосовые до\u00A020\u00A0МБ тоже сохраняются. Копии хранятся зашифрованными только на\u00A0этом компьютере."_q));
+
+	OpenBlock(builder, u"Правки"_q);
+	take(u"deleted/edits"_q);
+	take(u"deleted/edits-inline"_q);
+	AddRestToggles(builder, toggles);
+	EndBlock(builder, rpl::single(u"Все версии с\u00A0точным временем: правый клик по сообщению → «История изменений»."_q));
+
+	OpenBlock(builder);
+	builder.addSubsectionTitle(tr::lng_telewhite_mods_deleted_look());
+	AddPercentSlider(
+		builder,
+		u"telewhite/deleted/transparency"_q,
+		&tr::lng_telewhite_mods_deleted_transparency,
+		Option::DeletedTransparency);
+	AddPercentSlider(
+		builder,
+		u"telewhite/deleted/versions-transparency"_q,
+		&tr::lng_telewhite_mods_versions_transparency,
+		Option::VersionsTransparency);
+	AddChoice(builder, {
+		.id = u"telewhite/deleted/auto-clear"_q,
+		.title = &tr::lng_telewhite_mods_auto_clear,
+		.option = Option::AutoClear,
+		.options = {
+			tr::lng_telewhite_mods_auto_clear_never(tr::now),
+			tr::lng_telewhite_mods_auto_clear_day(tr::now),
+			tr::lng_telewhite_mods_auto_clear_week(tr::now),
+			tr::lng_telewhite_mods_auto_clear_month(tr::now),
+			tr::lng_telewhite_mods_auto_clear_three_months(tr::now),
+			tr::lng_telewhite_mods_auto_clear_year(tr::now),
+		},
+		.keywords = { u"автоочистка"_q, u"очистка"_q, u"clear"_q },
+		.changed = [](int) { PruneArchives(); },
+	});
+	EndBlock(builder, tr::lng_telewhite_mods_deleted_look_about());
+
+	OpenBlock(builder);
+	builder.addSubsectionTitle(tr::lng_telewhite_mods_exclusions());
+	AddExclusions(builder);
+	EndBlock(builder, tr::lng_telewhite_mods_exclusions_about());
+}
+
+void BuildSending(SectionBuilder &builder) {
+	auto toggles = GroupToggles(Group::Sending, builder.session());
+	const auto take = [&](const QString &id) {
+		AddToggleById(builder, toggles, id);
+	};
+
+	OpenBlock(builder, u"Подтверждение"_q);
+	take(u"sending/stickers"_q);
+	take(u"sending/gifs"_q);
+	take(u"sending/voice"_q);
+	EndBlock(builder, rpl::single(u"Стикер и\u00A0GIF уйдут только после «Отправить», а\u00A0записанное голосовое сначала можно прослушать."_q));
+
+	OpenBlock(builder, u"Текст и стикеры"_q);
+	take(u"sending/anti-caps"_q);
+	take(u"sending/stickers-without-set"_q);
+	AddRestToggles(builder, toggles);
+	EndBlock(builder, rpl::single(u"Анти-капс переводит сообщение, набранное КАПСОМ, в\u00A0обычный регистр, а\u00A0ссылки, упоминания и\u00A0код не\u00A0трогает. Статичный стикер без набора уходит файлом: получатель не\u00A0откроет по нему набор."_q));
+}
+
+void BuildPremium(SectionBuilder &builder) {
+	auto toggles = GroupToggles(Group::Premium, builder.session());
+	const auto take = [&](const QString &id) {
+		AddToggleById(builder, toggles, id);
+	};
+
+	OpenBlock(builder, u"Без лимитов"_q);
+	AddPinsInfo(builder);
+	take(u"premium/unlimited-search"_q);
+	EndBlock(builder, rpl::single(u"Закрепляйте сколько угодно чатов: первые синхронизируются с\u00A0Telegram, остальные хранятся на\u00A0этом компьютере. Поиск помнит до\u00A01000 недавних чатов."_q));
+
+	OpenBlock(builder, u"Перевод"_q);
+	AddTranslatorChoice(builder);
+	take(u"premium/translate"_q);
+	take(u"premium/translate-before-send"_q);
+	AddChoice(builder, {
+		.id = u"telewhite/premium/translate-send-to"_q,
+		.title = &tr::lng_telewhite_mods_translate_send_to,
+		.option = Option::TranslateSendTo,
+		.options = SendLanguageNames(),
+		.keywords = { u"перевод"_q, u"язык"_q, u"language"_q },
+		.shown = EnabledValue(Mod::TranslateBeforeSend),
+		.nested = true,
+	});
+	EndBlock(builder, rpl::single(u"Без Premium чаты переводит Google, для этого текст уходит на\u00A0серверы Google. Перевод перед отправкой: правый клик в\u00A0поле ввода → «Перевести на…»."_q));
+
+	OpenBlock(builder, u"Папки"_q);
+	take(u"premium/folder-tags"_q);
+	AddRestToggles(builder, toggles);
+	EndBlock(builder, rpl::single(u"Названия папок видны метками прямо в\u00A0списке чатов, как с\u00A0Premium."_q));
+}
+
+void BuildClean(SectionBuilder &builder) {
+	auto toggles = GroupToggles(Group::Clean, builder.session());
+	const auto take = [&](const QString &id) {
+		AddToggleById(builder, toggles, id);
+	};
+
+	OpenBlock(builder, u"Что скрыть"_q);
+	take(u"clean/stories"_q);
+	take(u"clean/sponsored"_q);
+	take(u"clean/emoji-status"_q);
+	take(u"clean/hide-premium"_q);
+	EndBlock(builder, rpl::single(u"Скрытие Premium, подарков и\u00A0звёзд применится при следующем открытии настроек или чата."_q));
+
+	OpenBlock(builder, u"Номер телефона"_q);
+	take(u"clean/phone"_q);
+	AddRestToggles(builder, toggles);
+	EndBlock(builder, GroupAbout(Group::Clean));
+}
+
+// Short groups: one block with the toggles and the group description.
+void BuildSimpleGroup(SectionBuilder &builder, Group group) {
+	auto toggles = GroupToggles(group, builder.session());
+	OpenBlock(builder);
+	for (auto i = 0; i != int(toggles.size()); ++i) {
+		AddToggle(builder, std::move(toggles[i]));
+		if (group == Group::Location && !i) {
+			AddFakePlace(builder);
+		}
+	}
+	if (group == Group::Chats) {
+		EndBlock(builder, rpl::single(u"Изменения применятся после повторного открытия чата. Пометку 18+ мод не\u00A0снимает: для неё в\u00A0Telegram есть своя настройка."_q));
+	} else {
+		EndBlock(builder, GroupAbout(group));
+	}
+	if (group == Group::Music) {
+		BuildMusicExtras(builder);
+	}
 }
 
 void BuildGroup(SectionBuilder &builder, Group group) {
 	if (!GroupShown(group)) {
 		return;
 	}
-	if (group == Group::Design) {
-		BuildDesign(builder);
-		return;
-	} else if (group == Group::Texts) {
-		BuildCustomTexts(builder);
-		return;
-	}
-	builder.addSkip();
-	if (group == Group::Premium) {
-		AddPinsInfo(builder);
-	}
-	auto toggles = GroupToggles(group, builder.session());
-	for (auto i = 0; i != int(toggles.size()); ++i) {
-		const auto id = toggles[i].id;
-		AddToggle(builder, std::move(toggles[i]));
-		if (group == Group::Location && !i) {
-			AddFakePlace(builder);
-		} else if (id == u"telewhite/ghost/typing"_q) {
-			AddGhostStatuses(builder);
-		}
-	}
-	if (group == Group::Premium) {
-		AddTranslatorChoice(builder);
-		AddChoice(builder, {
-			.id = u"telewhite/premium/translate-send-to"_q,
-			.title = &tr::lng_telewhite_mods_translate_send_to,
-			.option = Option::TranslateSendTo,
-			.options = SendLanguageNames(),
-			.keywords = { u"перевод"_q, u"язык"_q, u"language"_q },
-			.shown = EnabledValue(Mod::TranslateBeforeSend),
-		});
-	}
-	builder.addSkip();
-	builder.addDividerText(GroupAbout(group));
-	if (group == Group::Deleted) {
-		BuildDeletedExtras(builder);
-	} else if (group == Group::Music) {
-		BuildMusicExtras(builder);
+	switch (group) {
+	case Group::Ghost: BuildGhost(builder); break;
+	case Group::Deleted: BuildDeleted(builder); break;
+	case Group::Sending: BuildSending(builder); break;
+	case Group::Premium: BuildPremium(builder); break;
+	case Group::Clean: BuildClean(builder); break;
+	case Group::Design: BuildDesign(builder); break;
+	case Group::Texts: BuildCustomTexts(builder); break;
+	default: BuildSimpleGroup(builder, group); break;
 	}
 }
 
+// The main page: the journals first, then the groups by topics.
 void BuildMods(SectionBuilder &builder) {
-	builder.addSkip();
-	for (const auto group : {
-		Group::Ghost,
-		Group::Deleted,
-		Group::Forward,
-		Group::Sending,
-		Group::Chats,
-		Group::Premium,
-		Group::Clean,
-		Group::Profile,
-		Group::Music,
-		Group::Location,
-		Group::Streamer,
-	}) {
-		AddGroupRow(builder, group);
-	}
-	builder.addSkip();
-	builder.addDivider();
-	builder.addSkip();
+	OpenBlock(builder, u"Журнал"_q);
+	AddJournalRow(builder, false, false);
+	AddJournalRow(builder, true, false);
+	EndBlock(builder);
+
+	OpenBlock(builder, u"Приватность"_q);
+	AddGroupRow(builder, Group::Ghost);
+	AddGroupRow(builder, Group::Streamer);
+	EndBlock(builder);
+
+	OpenBlock(builder, u"Сообщения"_q);
+	AddGroupRow(builder, Group::Deleted);
+	AddGroupRow(builder, Group::Forward);
+	AddGroupRow(builder, Group::Sending);
+	EndBlock(builder);
+
+	OpenBlock(builder, u"Возможности"_q);
+	AddGroupRow(builder, Group::Premium);
+	AddGroupRow(builder, Group::Chats);
+	AddGroupRow(builder, Group::Profile);
+	AddGroupRow(builder, Group::Clean);
+	EndBlock(builder);
+
+	OpenBlock(builder, u"Внешний вид"_q);
 	AddGroupRow(builder, Group::Design);
 	AddGroupRow(builder, Group::Texts);
-	builder.addSkip();
-	builder.addDividerText(tr::lng_telewhite_mods_hint());
+	EndBlock(builder, tr::lng_telewhite_mods_hint());
 }
 
 class ModsSection final : public Section<ModsSection> {
