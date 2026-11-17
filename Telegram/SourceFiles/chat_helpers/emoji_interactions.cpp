@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "chat_helpers/emoji_interactions.h"
 
+#include "telewhite/telewhite_mods.h"
 #include "chat_helpers/stickers_emoji_pack.h"
 #include "history/history_item.h"
 #include "history/history.h"
@@ -317,6 +318,10 @@ void EmojiInteractions::sendAccumulatedOutgoing(
 	}
 	if (bunch.interactions.empty()) {
 		return;
+	} else if (Telewhite::GhostStatusHidden(Telewhite::GhostStatus::Emoji)) {
+		// Telewhite: the ghost mode doesn't show the taps to the other side.
+		animations.erase(from, till);
+		return;
 	}
 	const auto peer = item->history()->peer;
 	const auto emoji = from->emoji;
@@ -477,12 +482,15 @@ void EmojiInteractions::playStarted(not_null<PeerData*> peer, QString emoji) {
 	if (i != end(map) && now - i->second < kAccumulateSeenRequests) {
 		return;
 	}
-	_session->api().request(MTPmessages_SetTyping(
-		MTP_flags(0),
-		peer->input(),
-		MTPint(), // top_msg_id
-		MTP_sendMessageEmojiInteractionSeen(MTP_string(emoji))
-	)).send();
+	// Telewhite: the ghost mode doesn't tell that the taps were watched.
+	if (!Telewhite::GhostStatusHidden(Telewhite::GhostStatus::Emoji)) {
+		_session->api().request(MTPmessages_SetTyping(
+			MTP_flags(0),
+			peer->input(),
+			MTPint(), // top_msg_id
+			MTP_sendMessageEmojiInteractionSeen(MTP_string(emoji))
+		)).send();
+	}
 	map[emoji] = now;
 	if (!_checkTimer.isActive()) {
 		_checkTimer.callOnce(kAccumulateSeenRequests);

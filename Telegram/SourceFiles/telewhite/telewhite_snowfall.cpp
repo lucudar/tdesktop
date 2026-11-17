@@ -8,11 +8,17 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "base/random.h"
 #include "base/timer.h"
+#include "telewhite/telewhite_glass_backdrop.h"
 #include "telewhite/telewhite_mods.h"
 #include "ui/painter.h"
 #include "ui/rp_widget.h"
 #include "ui/style/style_core_scale.h"
+#include "ui/widgets/fields/input_field.h"
+#include "ui/widgets/scroll_area.h"
 #include "styles/style_basic.h"
+#include "styles/palette.h"
+
+#include <QtCore/QPointer>
 
 #include <cmath>
 
@@ -28,6 +34,13 @@ constexpr auto kMaxFlakes = std::array{ 120, 220, 380, 600 };
 
 // By the "speed" option: 0 - slow .. 3 - very fast.
 constexpr auto kSpeeds = std::array{ 0.5, 1., 1.6, 2.4 };
+
+// The input area capsule: margins to the wallpaper and the corners.
+constexpr auto kComposeSide = 6;
+constexpr auto kComposeTop = 4;
+constexpr auto kComposeBottom = 5;
+constexpr auto kComposeRadius = 21;
+constexpr auto kComposeMinHeight = 24;
 
 [[nodiscard]] double RandomUnit() {
 	return base::RandomValue<uint32>() / double(0xFFFFFFFFU);
@@ -51,6 +64,16 @@ constexpr auto kSpeeds = std::array{ 0.5, 1., 1.6, 2.4 };
 		mix(accent.red(), 255),
 		mix(accent.green(), 255),
 		mix(accent.blue(), 255));
+}
+
+[[nodiscard]] float64 ComposeRadius(QRect capsule) {
+	return std::min(
+		capsule.height() / 2.,
+		float64(style::ConvertScale(kComposeRadius)));
+}
+
+[[nodiscard]] bool ComposeDark() {
+	return (st::historyComposeAreaBg->c.lightnessF() < 0.5);
 }
 
 class SnowOverlay final : public Ui::RpWidget {
@@ -86,6 +109,37 @@ private:
 	crl::time _last = 0;
 	int _frame = 0;
 	bool _active = false;
+
+};
+
+// The input area of the chat becomes a floating capsule: the wallpaper
+// is painted around it under all the controls, they stay where they are.
+class ComposeGlass final : public Ui::RpWidget {
+public:
+	ComposeGlass(
+		not_null<Ui::RpWidget*> parent,
+		rpl::producer<QRect> scrollGeometry);
+
+protected:
+	void paintEvent(QPaintEvent *e) override;
+
+private:
+	void ensureField();
+	void refresh();
+	[[nodiscard]] bool shouldPaint() const;
+	[[nodiscard]] QRect capsuleRect() const;
+	void validateFrame(QRect capsule);
+	void paintRim(QPainter &p, QRect capsule) const;
+
+	const not_null<Ui::RpWidget*> _owner;
+	QPointer<Ui::InputField> _field;
+	QRect _scroll;
+	QImage _frame;
+	QRect _frameCapsule;
+	QSize _frameSize;
+	QSize _frameFill;
+	QPoint _frameShift;
+	quint64 _frameKey = 0;
 
 };
 
@@ -232,6 +286,201 @@ void SnowOverlay::paintEvent(QPaintEvent *e) {
 	}
 }
 
+ComposeGlass::ComposeGlass(
+	not_null<Ui::RpWidget*> parent,
+	rpl::producer<QRect> scrollGeometry)
+: RpWidget(parent.get())
+, _owner(parent) {
+	setAttribute(Qt::WA_TransparentForMouseEvents);
+	setAttribute(Qt::WA_NoSystemBackground);
+	hide();
+
+	ensureField();
+
+	std::move(
+		scrollGeometry
+	) | rpl::on_next([=](QRect scroll) {
+		_scroll = scroll;
+		refresh();
+	}, lifetime());
+
+	parent->sizeValue(
+	) | rpl::on_next([=] {
+		refresh();
+	}, lifetime());
+
+	EnabledValue(
+		Mod::GlassUi
+	) | rpl::skip(1) | rpl::on_next([=] {
+		refresh();
+	}, lifetime());
+
+	style::PaletteChanged(
+	) | rpl::on_next([=] {
+		_frame = QImage();
+		update();
+	}, lifetime());
+}
+
+void ComposeGlass::ensureField() {
+	if (_field) {
+		return;
+	}
+	for (const auto child : _owner->children()) {
+		if (const auto input = dynamic_cast<Ui::InputField*>(child)) {
+			_field = input;
+			input->shownValue(
+			) | rpl::skip(1) | rpl::on_next([=] {
+				refresh();
+			}, lifetime());
+			return;
+		}
+	}
+}
+
+void ComposeGlass::refresh() {
+	ensureField();
+	const auto input = _field.data();
+	const auto top = _scroll.y() + _scroll.height() - st::lineWidth;
+	const auto bottom = _owner->height();
+	const auto wanted = Enabled(Mod::GlassUi)
+		&& input
+		&& !input->isHidden()
+		&& !_scroll.isEmpty()
+		&& (top > 0)
+		&& (bottom - top >= style::ConvertScale(kComposeMinHeight));
+	if (!wanted) {
+		if (!isHidden()) {
+			hide();
+		}
+		return;
+	}
+	setGeometry(0, top, _owner->width(), bottom - top);
+	if (isHidden()) {
+		show();
+	}
+	lower();
+	update();
+}
+
+bool ComposeGlass::shouldPaint() const {
+	const auto input = _field.data();
+	return Enabled(Mod::GlassUi) && input && !input->isHidden();
+}
+
+QRect ComposeGlass::capsuleRect() const {
+	auto bottom = height();
+	for (const auto child : _owner->children()) {
+		const auto keyboard = dynamic_cast<Ui::ScrollArea*>(child);
+		if (!keyboard
+			|| keyboard->isHidden()
+			|| (keyboard->geometry() == _scroll)) {
+			continue;
+		}
+		const auto keyboardTop = keyboard->y() - y();
+		if (keyboardTop > 0 && keyboardTop < bottom) {
+			bottom = keyboardTop;
+		}
+	}
+	const auto side = style::ConvertScale(kComposeSide);
+	const auto top = st::lineWidth + style::ConvertScale(kComposeTop);
+	const auto result = QRect(
+		side,
+		top,
+		width() - 2 * side,
+		bottom - top - style::ConvertScale(kComposeBottom));
+	return ((result.width() > 0)
+		&& (result.height() >= style::ConvertScale(kComposeMinHeight)))
+		? result
+		: QRect();
+}
+
+void ComposeGlass::validateFrame(QRect capsule) {
+	const auto source = ResolveGlassSource(this);
+	if (!source) {
+		_frame = QImage();
+		return;
+	}
+	if (!_frame.isNull()
+		&& (_frameKey == source->key)
+		&& (_frameShift == source->shift)
+		&& (_frameFill == source->fill)
+		&& (_frameCapsule == capsule)
+		&& (_frameSize == size())) {
+		return;
+	}
+	const auto ratio = style::DevicePixelRatio();
+	auto frame = QImage(
+		size() * ratio,
+		QImage::Format_ARGB32_Premultiplied);
+	frame.setDevicePixelRatio(ratio);
+	frame.fill(Qt::transparent);
+	{
+		auto q = QPainter(&frame);
+		PaintGlassWallpaper(q, *source, QRect(QPoint(), size()));
+
+		auto hq = PainterHighQualityEnabler(q);
+		const auto radius = ComposeRadius(capsule);
+		const auto dark = ComposeDark();
+		const auto shape = QRectF(capsule);
+		q.setPen(Qt::NoPen);
+		for (auto i = 0; i != 3; ++i) {
+			const auto grow = style::ConvertScaleExact(1. + i);
+			q.setBrush(QColor(0, 0, 0, dark ? (28 - i * 8) : (18 - i * 5)));
+			q.drawRoundedRect(
+				shape.adjusted(-grow, -grow / 2., grow, grow * 1.5),
+				radius + grow,
+				radius + grow);
+		}
+		q.setCompositionMode(QPainter::CompositionMode_DestinationOut);
+		q.setBrush(QColor(0, 0, 0));
+		q.drawRoundedRect(shape, radius, radius);
+	}
+	_frame = std::move(frame);
+	_frameKey = source->key;
+	_frameShift = source->shift;
+	_frameFill = source->fill;
+	_frameCapsule = capsule;
+	_frameSize = size();
+}
+
+void ComposeGlass::paintRim(QPainter &p, QRect capsule) const {
+	auto hq = PainterHighQualityEnabler(p);
+	const auto line = style::ConvertScaleExact(1.);
+	const auto half = line / 2.;
+	const auto radius = std::max(ComposeRadius(capsule) - half, 0.);
+	const auto shape = QRectF(capsule).marginsRemoved(
+		QMarginsF(half, half, half, half));
+	const auto dark = ComposeDark();
+	auto gradient = QLinearGradient(shape.topLeft(), shape.bottomLeft());
+	gradient.setColorAt(
+		0.,
+		dark ? QColor(255, 255, 255, 46) : QColor(255, 255, 255, 170));
+	gradient.setColorAt(
+		1.,
+		dark ? QColor(255, 255, 255, 12) : QColor(0, 0, 0, 28));
+	p.setBrush(Qt::NoBrush);
+	p.setPen(QPen(QBrush(gradient), line));
+	p.drawRoundedRect(shape, radius, radius);
+}
+
+void ComposeGlass::paintEvent(QPaintEvent *) {
+	if (!shouldPaint()) {
+		return;
+	}
+	const auto capsule = capsuleRect();
+	if (capsule.isEmpty()) {
+		return;
+	}
+	validateFrame(capsule);
+	if (_frame.isNull()) {
+		return;
+	}
+	auto p = QPainter(this);
+	p.drawImage(0, 0, _frame);
+	paintRim(p, capsule);
+}
+
 } // namespace
 
 void SetupSnowfall(not_null<Ui::RpWidget*> parent) {
@@ -246,6 +495,15 @@ void SetupSnowfall(not_null<Ui::RpWidget*> parent) {
 void SetupChatSnowfall(
 		not_null<Ui::RpWidget*> parent,
 		rpl::producer<QRect> geometry) {
+	InstallGlassBackdrop();
+	EnabledValue(
+		Mod::GlassUi
+	) | rpl::on_next([](bool enabled) {
+		SetGlassUiEnabled(enabled);
+	}, parent->lifetime());
+
+	const auto scroll = parent->lifetime().make_state<rpl::variable<QRect>>(
+		std::move(geometry));
 	Ui::CreateChild<SnowOverlay>(
 		parent.get(),
 		rpl::combine(
@@ -254,7 +512,8 @@ void SetupChatSnowfall(
 		) | rpl::map([](bool chats, bool window) {
 			return chats && !window;
 		}),
-		std::move(geometry));
+		scroll->value());
+	Ui::CreateChild<ComposeGlass>(parent.get(), scroll->value());
 }
 
 } // namespace Telewhite
