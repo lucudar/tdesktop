@@ -74,6 +74,11 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::NowPlayingBio: return "telewhite-now-playing-bio";
 	case Mod::NowPlayingProfile: return "telewhite-now-playing-profile";
 	case Mod::NowPlayingSoundCloud: return "telewhite-now-playing-soundcloud";
+	case Mod::GhostScheduled: return "telewhite-ghost-scheduled";
+	case Mod::FolderTags: return "telewhite-folder-tags";
+	case Mod::GlassUi: return "telewhite-glass-ui";
+	case Mod::UnlimitedSearch: return "telewhite-unlimited-search";
+	case Mod::MentionDeletedReply: return "telewhite-mention-deleted-reply";
 	case Mod::kCount: break;
 	}
 	Unexpected("Mod in Telewhite::Key.");
@@ -89,7 +94,10 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::NowPlayingBio:
 	case Mod::NowPlayingProfile:
 	case Mod::NowPlayingSoundCloud:
-	case Mod::GhostReadOnReply: return true;
+	case Mod::GhostReadOnReply:
+	case Mod::GlassUi:
+	case Mod::UnlimitedSearch:
+	case Mod::MentionDeletedReply: return true;
 	default: return false;
 	}
 }
@@ -109,6 +117,8 @@ constexpr auto kOptionsCount = int(Option::kCount);
 	case Option::Translator: return "telewhite-translator";
 	case Option::FakeCity: return "telewhite-fake-city";
 	case Option::TranslateSendTo: return "telewhite-translate-send-to";
+	case Option::GhostVisibleStatuses:
+		return "telewhite-ghost-visible-statuses";
 	case Option::kCount: break;
 	}
 	Unexpected("Option in Telewhite::Key.");
@@ -193,9 +203,10 @@ constexpr auto kRegistrationPoints = std::array<RegistrationPoint, 33>{ {
 void LoadMods(not_null<Core::Settings*> settings) {
 	auto &values = Values();
 	for (auto i = 0; i != kModsCount; ++i) {
-		values[i] = settings->readPref<bool>(
-			Key(Mod(i)),
-			DefaultValue(Mod(i)));
+		values[i] = !Removed(Mod(i))
+			&& settings->readPref<bool>(
+				Key(Mod(i)),
+				DefaultValue(Mod(i)));
 	}
 	auto &options = OptionValues();
 	for (auto i = 0; i != kOptionsCount; ++i) {
@@ -208,7 +219,28 @@ void LoadMods(not_null<Core::Settings*> settings) {
 
 }
 
+bool Removed(Mod mod) {
+	switch (mod) {
+	case Mod::LocalPins: // Unlimited pins are always on now.
+	case Mod::NowPlaying:
+	case Mod::NowPlayingSpotify:
+	case Mod::NowPlayingYandex:
+	case Mod::NowPlayingVk:
+	case Mod::NowPlayingOther:
+	case Mod::NowPlayingBio:
+	case Mod::NowPlayingProfile:
+	case Mod::NowPlayingSoundCloud:
+	case Mod::FakeLocation:
+	case Mod::FakeLocationAuto:
+	case Mod::FakeLocationWalk: return true;
+	default: return false;
+	}
+}
+
 bool CountedInBanner(Mod mod) {
+	if (Removed(mod)) {
+		return false;
+	}
 	switch (mod) {
 	case Mod::StreamerMode:
 	case Mod::NowPlaying:
@@ -229,7 +261,10 @@ bool CountedInBanner(Mod mod) {
 	case Mod::NowPlayingBio:
 	case Mod::NowPlayingProfile:
 	case Mod::NowPlayingSoundCloud:
-	case Mod::GhostReadOnReply: return false;
+	case Mod::GhostScheduled:
+	case Mod::GhostReadOnReply:
+	case Mod::MentionDeletedReply:
+	case Mod::GlassUi: return false;
 	default: return true;
 	}
 }
@@ -263,6 +298,14 @@ TimeId AutoClearSeconds(AutoClearPeriod period) {
 	return 0;
 }
 
+bool GhostStatusHidden(GhostStatus status) {
+	if (!Enabled(Mod::GhostTyping)) {
+		return false;
+	}
+	const auto visible = OptionNow(Option::GhostVisibleStatuses);
+	return !(visible & (1 << int(status)));
+}
+
 bool Enabled(Mod mod) {
 	return Values()[int(mod)].current();
 }
@@ -272,6 +315,9 @@ rpl::producer<bool> EnabledValue(Mod mod) {
 }
 
 void SetEnabled(Mod mod, bool enabled) {
+	if (Removed(mod)) {
+		enabled = false;
+	}
 	Values()[int(mod)] = enabled;
 	Core::App().settings().writePref<bool>(Key(mod), enabled);
 	Core::App().saveSettingsDelayed();

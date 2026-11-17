@@ -44,6 +44,8 @@
 Переключатель «Режим призрака целиком» в начале страницы включает и выключает
 сразу все четыре мода призрака.
 
+«Всегда «не в сети»» (батч 21): сразу после отправки сообщения клиент снова шлёт `account.updateStatus(offline)` — перед запросом, после ответа и ещё дважды с шагом 3 с (`Updates::ghostOfflineAfterAction`, вызовы в `Histories::sendRequest` и `Histories::sendPreparedMessage`). Если в течение 15 с после отправки сервер присылает «вы в сети», клиент сразу отвечает «не в сети». При включении мода «не в сети» отправляется сразу, а не только при смене состояния. Подпункт **«Отправлять отложенными»** (`Mod::GhostScheduled`, `Telewhite::ApplyGhostSchedule` в `telewhite/telewhite_tweaks.cpp`, вызов в `prepareSendAction` у `HistoryWidget` и `ChatWidget`): сообщения, файлы, стикеры и пересылка из чата уходят как запланированные на 12 с вперёд, сервер отправляет их сам и не показывает вас в сети. Не применяется к «Избранному», ботам, платным сообщениям, личным сообщениям каналов и уже запланированным.
+
 Ограничения режима призрака: если вы сами отправите сообщение в чат, сервер
 отметит его прочитанным. Одноразовые (самоуничтожающиеся) медиа отмечаются
 открытыми как обычно, чтобы не обходить самоуничтожение. Непрочитанные
@@ -114,7 +116,10 @@
 | Точный «был(а) в сети» | Моды → Профиль и время | Время последнего захода с секундами. | `Data::OnlineText`, `OnlineTextFull` (`data/data_peer_values.cpp`) |
 | Секунды во времени | Моды → Профиль и время или Настройки → Чат | Время сообщений и списка чатов с секундами. | `Ui::FormatTimeOfDay` (`ui/text/format_values.cpp`) |
 
-## Музыка (только Windows)
+## Музыка (только Windows) — удалено в батче 21
+
+Группы «Музыка» больше нет: моды `NowPlaying*` всегда выключены (`Telewhite::Removed` в `telewhite/telewhite_mods.cpp`), группа не строится (`GroupShown` в `telewhite/telewhite_settings.cpp`). Если от прошлой версии осталось подменённое «О себе» или трек в профиле, `NowPlaying::Start` вернёт прежнее при запуске. Ниже — описание для истории.
+
 
 | Функция | Где включить | Что делает | Код |
 |---|---|---|---|
@@ -128,12 +133,15 @@
 |---|---|---|---|
 | Перевод чатов целиком без Premium | Моды → Локальный премиум | Включает панель «Перевести» над чатом на другом языке и пункт «Перевести» в меню «⋮», как с Premium. Без Premium тексты переводит Google Переводчик (`translate.googleapis.com`), с Premium — Telegram. | `Telewhite::UseGoogleTranslate`, `CreateGoogleTranslateProvider` (`telewhite/telewhite_translate.cpp`), `CreateTranslateProvider` (`lang/translate_provider.cpp`), `TranslateTracker::setup` (`history/view/history_view_translate_tracker.cpp`), `Filler::addTranslate` (`window/window_peer_menu.cpp`) |
 | Переводчик | Моды → Локальный премиум | Выбор «Telegram» или «Google Переводчик» для перевода отдельных сообщений и чатов. Telegram бесплатно переводит отдельные сообщения; через Google текст уходит на серверы Google. | `AddTranslatorChoice` (`telewhite/telewhite_settings.cpp`) |
-| Закрепы сверх лимита | Моды → Локальный премиум | Если Telegram не даёт закрепить ещё один чат, он закрепляется только на этом компьютере — без окна Premium. Такие чаты стоят сразу под обычными закреплёнными, отмечены булавкой и открепляются как обычно (новый встаёт первым среди них, перетаскивать нельзя). Работает в «Все чаты» и в архиве, в папках — нет. На других устройствах их нет. | `telewhite/telewhite_local_pins.cpp`, `Entry::computeSortPosition` (`dialogs/dialogs_entry.cpp`), `PinnedLimitReached` и `TogglePinnedThread` (`window/window_peer_menu.cpp`), `DisplayPinned` (`dialogs/ui/dialogs_layout.cpp`) |
+| Безлимитные закрепы | всегда | Как в Ghostgram: закреплять можно сколько угодно чатов во «Всех чатах» и в архиве. Один общий список закреплённых: первые (сколько разрешает Telegram — 5 или 10 с Premium) уходят на сервер и видны на других устройствах, остальные («хвост») хранятся только на этом компьютере. Перетаскивание работает по всему списку; после любого закрепления, открепления или перетаскивания на сервер уходят ровно первые N (`messages.reorderPinnedDialogs` с `force`). Список с сервера не открепляет «хвост»: он запоминается и возвращается после серверного списка. В папках — как в Telegram. | `telewhite/telewhite_local_pins.cpp` (`SavePinnedTail`, `RestorePinnedTail`, `PinnedInsertPosition`), `ApiWrap::savePinnedOrder` (`apiwrap.cpp`), `Session::pinnedCanPin`, `setPinnedFromEntryList`, `applyPinnedChats`, `maxPinnedChatsLimitValue` (`data/data_session.cpp`), `PinnedList::addPinnedAt` (`dialogs/dialogs_pinned_list.cpp`), `TogglePinnedThread` (`window/window_peer_menu.cpp`) |
 
 Порядок локальных закрепов хранится в зашифрованном файле `telewhite_pins` в
 папке аккаунта и удаляется при выходе из аккаунта.
 
-## Геопозиция
+## Геопозиция — удалено в батче 21
+
+Группы «Геопозиция» больше нет: моды `FakeLocation*` всегда выключены (`Telewhite::Removed`), окно отправки геопозиции показывает настоящее место. Ниже — описание для истории.
+
 
 | Функция | Где включить | Что делает | Код |
 |---|---|---|---|
