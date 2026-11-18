@@ -6,7 +6,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 '''
 # Build time patches of the upstream sources that are too large to keep
 # as whole copies in the fork: the history widget, the compose controls,
-# and the small glass changes of the top bars.
+# the small glass changes of the top bars and the menus of lib_ui.
 # Telegram/configure.py runs it before CMake, after the checkout.
 #
 # A piece is an exact fragment of the upstream code and its replacement.
@@ -32,6 +32,7 @@ REQUESTS_BAR = 'Telegram/SourceFiles/ui/chat/requests_bar.cpp'
 TRANSLATE_BAR = (
     'Telegram/SourceFiles/history/view/'
     'history_view_translate_bar.cpp')
+POPUP_MENU = 'Telegram/lib_ui/ui/widgets/popup_menu.cpp'
 
 FEATURES = [
     {
@@ -378,6 +379,188 @@ FEATURES = [
 			p.fillRect(clip, st::historyComposeButtonBg);
 		}
 	}, button->lifetime());''',
+            },
+        ],
+    },
+    {
+        'id': 'glass-menus',
+        'title': 'frosted glass context menus',
+        'pieces': [
+            {
+                'file': POPUP_MENU,
+                'find': '''#include <QtWidgets/QApplication>''',
+                'replace': '''#include <QtWidgets/QApplication>
+#include <QtGui/QGuiApplication>
+
+#include <map>
+#include <memory>''',
+            },
+            {
+                'file': POPUP_MENU,
+                'find': '''namespace Ui {
+namespace {''',
+                'replace': '''namespace Ui {
+namespace {
+
+// Telewhite: the glass menus, see Telegram/build/telewhite_patch.py.
+// The items of a glass menu get a transparent background and the menu
+// paints the frosted screen under it, captured right before it is shown.
+constexpr auto kTelewhiteGlassMenus = "telewhiteGlassMenus";
+constexpr auto kTelewhiteGlassBackdrop = "telewhiteGlassBackdrop";
+constexpr auto kTelewhiteGlassTint = 0.8;
+constexpr auto kTelewhiteGlassOver = 0.6;
+constexpr auto kTelewhiteGlassDownscale = 4;
+constexpr auto kTelewhiteGlassRadius = 6;
+
+struct TelewhiteGlassStyle {
+	explicit TelewhiteGlassStyle(const style::PopupMenu &st)
+	: itemBg(QColor(0, 0, 0, 0))
+	, itemBgOver(st.menu.itemBgOver->c)
+	, base(st.menu.itemBg)
+	, copy(st) {
+		copy.menu.itemBg = itemBg.color();
+		copy.menu.itemBgOver = itemBgOver.color();
+	}
+
+	style::owned_color itemBg;
+	style::owned_color itemBgOver;
+	style::color base;
+	style::PopupMenu copy;
+};
+
+[[nodiscard]] auto &TelewhiteGlassStyles() {
+	static auto result = std::map<
+		const style::PopupMenu*,
+		std::unique_ptr<TelewhiteGlassStyle>>();
+	return result;
+}
+
+[[nodiscard]] const TelewhiteGlassStyle *TelewhiteGlassFor(
+		const style::PopupMenu &st) {
+	for (const auto &entry : TelewhiteGlassStyles()) {
+		if (&entry.second->copy == &st) {
+			return entry.second.get();
+		}
+	}
+	return nullptr;
+}
+
+[[nodiscard]] const style::PopupMenu &TelewhiteMenuStyle(
+		const style::PopupMenu &st) {
+	const auto app = QCoreApplication::instance();
+	if (!app
+		|| !app->property(kTelewhiteGlassMenus).toBool()
+		|| TelewhiteGlassFor(st)) {
+		return st;
+	}
+	auto &entry = TelewhiteGlassStyles()[&st];
+	if (!entry) {
+		entry = std::make_unique<TelewhiteGlassStyle>(st);
+	}
+	auto over = st.menu.itemBgOver->c;
+	over.setAlphaF(float(over.alphaF() * kTelewhiteGlassOver));
+	entry->itemBgOver.update(over);
+	return entry->copy;
+}
+
+void TelewhiteCaptureGlass(
+		not_null<QWidget*> menu,
+		const style::PopupMenu &st,
+		QRect inner) {
+	menu->setProperty(kTelewhiteGlassBackdrop, QVariant());
+	if (!TelewhiteGlassFor(st) || inner.isEmpty()) {
+		return;
+	}
+	const auto global = QRect(menu->mapToGlobal(inner.topLeft()), inner.size());
+	const auto screen = QGuiApplication::screenAt(global.center());
+	if (!screen) {
+		return;
+	}
+	const auto origin = screen->geometry().topLeft();
+	const auto shot = screen->grabWindow(
+		0,
+		global.x() - origin.x(),
+		global.y() - origin.y(),
+		global.width(),
+		global.height());
+	if (shot.isNull()) {
+		return;
+	}
+	auto reduced = shot.toImage().scaled(
+		std::max(shot.width() / kTelewhiteGlassDownscale, 1),
+		std::max(shot.height() / kTelewhiteGlassDownscale, 1),
+		Qt::IgnoreAspectRatio,
+		Qt::SmoothTransformation
+	).convertToFormat(QImage::Format_ARGB32_Premultiplied);
+	reduced.setDevicePixelRatio(1.);
+	reduced = Images::BlurLargeImage(
+		std::move(reduced),
+		kTelewhiteGlassRadius);
+	menu->setProperty(kTelewhiteGlassBackdrop, QVariant::fromValue(reduced));
+}
+
+void TelewhitePaintGlass(
+		QPainter &p,
+		not_null<QWidget*> menu,
+		const style::PopupMenu &st,
+		QRect inner) {
+	const auto glass = TelewhiteGlassFor(st);
+	if (!glass || inner.isEmpty()) {
+		return;
+	}
+	auto tint = glass->base->c;
+	const auto backdrop = menu->property(
+		kTelewhiteGlassBackdrop).value<QImage>();
+	if (backdrop.isNull()) {
+		p.fillRect(inner, tint);
+		return;
+	}
+	const auto dark = (tint.lightnessF() < 0.5);
+	p.save();
+	p.setRenderHint(QPainter::SmoothPixmapTransform);
+	p.drawImage(QRectF(inner), backdrop);
+	tint.setAlphaF(float(tint.alphaF() * kTelewhiteGlassTint));
+	p.fillRect(inner, tint);
+	auto sheen = QLinearGradient(
+		QPointF(inner.left(), inner.top()),
+		QPointF(inner.left(), inner.top() + inner.height() * 0.45));
+	sheen.setColorAt(0., QColor(255, 255, 255, dark ? 16 : 36));
+	sheen.setColorAt(1., QColor(255, 255, 255, 0));
+	p.fillRect(inner, QBrush(sheen));
+	p.restore();
+}''',
+            },
+            {
+                'file': POPUP_MENU,
+                'count': 2,
+                'find': ''', _st(st)
+, _roundRect(_st.radius, _st.menu.itemBg)''',
+                'replace': ''', _st(TelewhiteMenuStyle(st))
+, _roundRect(_st.radius, st.menu.itemBg)''',
+            },
+            {
+                'file': POPUP_MENU,
+                'find': '''void PopupMenu::paintBg(QPainter &p) {
+	if (!_useTransparency) {''',
+                'replace': '''void PopupMenu::paintBg(QPainter &p) {
+	TelewhitePaintGlass(p, this, _st, _inner);
+	if (!_useTransparency) {''',
+            },
+            {
+                'file': POPUP_MENU,
+                'find': '''_grabbingForPanelAnimation = true;
+		p.fillRect(_inner, _st.menu.itemBg);''',
+                'replace': '''_grabbingForPanelAnimation = true;
+		p.fillRect(_inner, _st.menu.itemBg);
+		TelewhitePaintGlass(p, this, _st, _inner);''',
+            },
+            {
+                'file': POPUP_MENU,
+                'find': '''void PopupMenu::showPrepared(TriggeredSource source) {
+	startShowAnimation();''',
+                'replace': '''void PopupMenu::showPrepared(TriggeredSource source) {
+	TelewhiteCaptureGlass(this, _st, _inner);
+	startShowAnimation();''',
             },
         ],
     },

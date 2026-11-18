@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/painter.h"
 #include "ui/style/style_core_scale.h"
 
+#include <QtCore/QCoreApplication>
 #include <QtGui/QImage>
 #include <QtGui/QLinearGradient>
 #include <QtGui/QPainterPath>
@@ -36,6 +37,11 @@ inline constexpr auto kGlassCircleTint = 0.9;
 
 inline void SetGlassUiEnabled(bool enabled) {
 	GlassUiFlag() = enabled;
+	// The menus of lib_ui can't see us, they read the application property,
+	// see the "glass-menus" feature in Telegram/build/telewhite_patch.py.
+	if (const auto app = QCoreApplication::instance()) {
+		app->setProperty("telewhiteGlassMenus", enabled);
+	}
 }
 
 struct GlassBackdropCache {
