@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "telewhite/telewhite_glass.h"
+#include "telewhite/telewhite_glass_scroll.h"
 #include "mainwidget.h"
 #include "ui/chat/chat_theme.h"
 #include "ui/image/image_prepare.h"
@@ -18,7 +19,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace Telewhite {
 
-// The wallpaper under the glass is downscaled, blurred and stretched back.
+// The wallpaper under the glass is downscaled, blurred and stretched back,
+// with the messages that go under the glass header painted over it.
 inline constexpr auto kGlassDownscale = 4;
 inline constexpr auto kGlassBlurRadius = 6;
 inline constexpr auto kGlassBlurMargin = 24;
@@ -27,7 +29,9 @@ struct GlassSource {
 	not_null<Ui::ChatTheme*> theme;
 	QSize fill;
 	QPoint shift;
+	int fromY = 0;
 	quint64 key = 0;
+	const GlassContent *content = nullptr;
 };
 
 // The chat section that paints the wallpaper under the widget.
@@ -72,9 +76,8 @@ struct GlassSource {
 	}
 	const auto theme = controller->currentChatTheme();
 	const auto position = widget->mapTo(section, QPoint());
-	const auto shift = QPoint(
-		position.x(),
-		position.y() - content->backgroundFromY());
+	const auto fromY = content->backgroundFromY();
+	const auto shift = QPoint(position.x(), position.y() - fromY);
 	const auto &background = theme->background();
 	auto key = quint64(reinterpret_cast<quintptr>(theme.get()));
 	if (background.colorForFill) {
@@ -88,11 +91,23 @@ struct GlassSource {
 			key = GlassKeyMix(key, quint64(int(state.shown * 32.) + 1));
 		}
 	}
+	// The messages under the glass header, when they are under this widget.
+	const auto glass = GlassContentOf(section);
+	const auto under = (glass
+		&& !glass->image.isNull()
+		&& glass->rect.intersects(QRect(position, widget->size())))
+		? glass
+		: nullptr;
+	if (under) {
+		key = GlassKeyMix(key, under->revision + 1);
+	}
 	return GlassSource{
 		.theme = theme,
 		.fill = fill,
 		.shift = shift,
+		.fromY = fromY,
 		.key = key,
+		.content = under,
 	};
 }
 
@@ -143,6 +158,11 @@ inline void PaintGlassWallpaper(
 			source.fill,
 			area,
 			true);
+		if (const auto under = source.content) {
+			q.drawImage(
+				QRectF(under->rect.translated(0, -source.fromY)),
+				under->image);
+		}
 	}
 	image = Images::BlurLargeImage(
 		std::move(image),
@@ -179,7 +199,7 @@ inline bool PaintGlassBlurred(
 		return false;
 	}
 	const auto &background = source->theme->background();
-	if (background.colorForFill) {
+	if (background.colorForFill && !source->content) {
 		p.fillRect(rect, *background.colorForFill);
 		return true;
 	}
