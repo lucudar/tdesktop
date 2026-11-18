@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "data/data_wall_paper.h"
 #include "lang/lang_keys.h"
 #include "settings.h"
 #include "telewhite/telewhite_amoled_theme.h"
@@ -45,6 +46,19 @@ constexpr auto kAccentThemes = std::array{
 	Theme::Emerald,
 	Theme::Sunset,
 	Theme::Cherry,
+};
+
+constexpr auto kPaperThemes = std::array{
+	Theme::TelewhiteDay,
+	Theme::Sakura,
+	Theme::Mint,
+	Theme::TelewhiteNight,
+	Theme::Ocean,
+	Theme::Emerald,
+	Theme::Sunset,
+	Theme::Cherry,
+	Theme::Graphite,
+	Theme::Amoled,
 };
 
 [[nodiscard]] QColor Rgb(uint32 rgb) {
@@ -99,6 +113,61 @@ constexpr auto kAccentThemes = std::array{
 	}
 }
 
+// Four colors of the gradient background of the theme.
+[[nodiscard]] QString PaperSlug(Theme theme) {
+	switch (theme) {
+	case Theme::TelewhiteDay: return u"dcd1f1~b4b3f0~e2c5eb~adc0ef"_q;
+	case Theme::Sakura: return u"f4d1d4~e8a9c0~f4c8c4~e4b3d2"_q;
+	case Theme::Mint: return u"c4e7db~96d0b6~b2e3e0~acd3b3"_q;
+	case Theme::TelewhiteNight: return u"29213c~141327~3a2747~0d111f"_q;
+	case Theme::Ocean: return u"0c2b34~031923~06373e~05131e"_q;
+	case Theme::Emerald: return u"132c20~091a0d~14382e~091509"_q;
+	case Theme::Sunset: return u"372016~26120d~432a15~1d0c0a"_q;
+	case Theme::Cherry: return u"381d27~210f1a~46252b~1a0c16"_q;
+	case Theme::Graphite: return u"212126~15161a~2c2a31~0e0f12"_q;
+	case Theme::Amoled: return u"000000~010203~000000~030305"_q;
+	default: return QString();
+	}
+}
+
+[[nodiscard]] std::optional<Data::WallPaper> ThemePaper(Theme theme) {
+	const auto slug = PaperSlug(theme);
+	return slug.isEmpty()
+		? std::nullopt
+		: Data::WallPaper::FromColorsSlug(slug);
+}
+
+[[nodiscard]] bool IsTelewhitePaper(const Data::WallPaper &paper) {
+	const auto colors = paper.backgroundColors();
+	if (colors.empty()) {
+		return false;
+	}
+	for (const auto theme : kPaperThemes) {
+		const auto own = ThemePaper(theme);
+		if (own && own->backgroundColors() == colors) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// Own wallpapers of the user are kept, only the default ones are replaced.
+void ApplyPaper(Theme theme) {
+	const auto background = Background();
+	const auto &current = background->paper();
+	const auto telewhite = IsTelewhitePaper(current);
+	if (!telewhite
+		&& !Data::IsThemeWallPaper(current)
+		&& !Data::IsDefaultWallPaper(current)) {
+		return;
+	}
+	if (const auto paper = ThemePaper(theme)) {
+		background->set(*paper);
+	} else if (telewhite) {
+		background->set(Data::ThemeWallPaper());
+	}
+}
+
 // Embedded Telegram theme the Telewhite theme is built from.
 [[nodiscard]] EmbeddedType BaseType(Theme theme) {
 	switch (theme) {
@@ -143,6 +212,41 @@ constexpr auto kAccentThemes = std::array{
 	return result;
 }
 
+[[nodiscard]] CloudListColors BaseColors(Theme theme) {
+	switch (theme) {
+	case Theme::TelewhiteDay: return SimpleColors(
+		Rgb(0xab9ae6),
+		Rgb(0xe6defd),
+		Rgb(0xffffff),
+		Rgb(0xffffff));
+	case Theme::Sakura: return SimpleColors(
+		Rgb(0xeba3bf),
+		Rgb(0xfcdce9),
+		Rgb(0xffffff),
+		Rgb(0xffffff));
+	case Theme::Mint: return SimpleColors(
+		Rgb(0x8fd3bd),
+		Rgb(0xd5faef),
+		Rgb(0xffffff),
+		Rgb(0xffffff));
+	case Theme::Amoled: return SimpleColors(
+		Rgb(0x000000),
+		Rgb(0x2b5278),
+		Rgb(0x1c1d1f),
+		Rgb(0x5288c1));
+	case Theme::Custom: return CloudListColors();
+	default: break;
+	}
+	const auto scheme = Scheme(BaseType(theme));
+	if (!scheme) {
+		return CloudListColors();
+	}
+	const auto accent = Accent(theme);
+	return accent
+		? ColorsFromScheme(*scheme, ColorizerFrom(*scheme, *accent))
+		: ColorsFromScheme(*scheme);
+}
+
 // Writes the bundled theme to tdata, Telegram applies themes from files.
 [[nodiscard]] QString WriteThemeFile(Theme theme) {
 	const auto content = FileContent(theme);
@@ -167,18 +271,20 @@ void ApplyPath(const QString &path, bool dark) {
 	KeepApplied();
 }
 
-void ApplyNow(Theme theme) {
+[[nodiscard]] bool ApplyThemeOnly(Theme theme) {
 	const auto dark = IsDarkTheme(theme);
 	if (ranges::contains(kFileThemes, theme)) {
-		if (const auto path = WriteThemeFile(theme); !path.isEmpty()) {
-			ApplyPath(path, dark);
+		const auto path = WriteThemeFile(theme);
+		if (path.isEmpty()) {
+			return false;
 		}
-		return;
+		ApplyPath(path, dark);
+		return true;
 	}
 	const auto type = BaseType(theme);
 	const auto scheme = Scheme(type);
 	if (!scheme) {
-		return;
+		return false;
 	}
 	auto &settings = Core::App().settings();
 	if (const auto accent = Accent(theme)) {
@@ -189,6 +295,13 @@ void ApplyNow(Theme theme) {
 	settings.setSystemAccentColorEnabled(false);
 	Core::App().saveSettingsDelayed();
 	ApplyPath(scheme->path, dark);
+	return true;
+}
+
+void ApplyNow(Theme theme) {
+	if (ApplyThemeOnly(theme)) {
+		ApplyPaper(theme);
+	}
 }
 
 [[nodiscard]] not_null<const tr::phrase<>*> ThemePhrase(Theme theme) {
@@ -243,38 +356,14 @@ QString ThemeNameNow(Theme theme) {
 }
 
 CloudListColors ThemeColors(Theme theme) {
-	switch (theme) {
-	case Theme::TelewhiteDay: return SimpleColors(
-		Rgb(0xab9ae6),
-		Rgb(0xe6defd),
-		Rgb(0xffffff),
-		Rgb(0xffffff));
-	case Theme::Sakura: return SimpleColors(
-		Rgb(0xeba3bf),
-		Rgb(0xfcdce9),
-		Rgb(0xffffff),
-		Rgb(0xffffff));
-	case Theme::Mint: return SimpleColors(
-		Rgb(0x8fd3bd),
-		Rgb(0xd5faef),
-		Rgb(0xffffff),
-		Rgb(0xffffff));
-	case Theme::Amoled: return SimpleColors(
-		Rgb(0x000000),
-		Rgb(0x2b5278),
-		Rgb(0x1c1d1f),
-		Rgb(0x5288c1));
-	case Theme::Custom: return CloudListColors();
-	default: break;
+	auto result = BaseColors(theme);
+	if (const auto paper = ThemePaper(theme)) {
+		auto image = Data::GenerateDitheredGradient(*paper);
+		if (!image.isNull()) {
+			result.background = std::move(image);
+		}
 	}
-	const auto scheme = Scheme(BaseType(theme));
-	if (!scheme) {
-		return CloudListColors();
-	}
-	const auto accent = Accent(theme);
-	return accent
-		? ColorsFromScheme(*scheme, ColorizerFrom(*scheme, *accent))
-		: ColorsFromScheme(*scheme);
+	return result;
 }
 
 Theme CurrentTheme() {
