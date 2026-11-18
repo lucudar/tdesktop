@@ -9,6 +9,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 class HistoryItem;
 class PeerData;
 
+namespace Main {
+class Session;
+} // namespace Main
+
 namespace Ui::Menu {
 struct MenuCallback;
 } // namespace Ui::Menu
@@ -55,6 +59,24 @@ void RememberEditVersion(not_null<HistoryItem*> item, EditVersion version);
 [[nodiscard]] std::vector<EditVersion> EditVersions(
 	not_null<HistoryItem*> item);
 
+// How many deleted / edited messages the archive of the account keeps.
+[[nodiscard]] rpl::producer<int> DeletedCountValue(
+	not_null<Main::Session*> session);
+[[nodiscard]] rpl::producer<int> EditedCountValue(
+	not_null<Main::Session*> session);
+
+// The journals of the deleted / edited messages: of all chats of the
+// account with the chat type tabs or of one chat. With the search,
+// "open in chat" and removing of the entries, a long press on a text
+// copies it with the formatting.
+void ShowDeletedJournal(
+	not_null<Window::SessionController*> controller,
+	PeerData *peer = nullptr);
+void ShowEditedJournal(
+	not_null<Window::SessionController*> controller,
+	PeerData *peer = nullptr);
+
+// "Deleted messages (N)" and "Edited messages (N)" in the chat menu.
 void AddDeletedMessagesAction(
 	not_null<Window::SessionController*> controller,
 	not_null<PeerData*> peer,
