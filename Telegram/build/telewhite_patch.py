@@ -5,7 +5,8 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 '''
 # Build time patches of the upstream sources that are too large to keep
-# as whole copies in the fork: the history widget, the compose controls.
+# as whole copies in the fork: the history widget, the compose controls,
+# and the small glass changes of the top bars.
 # Telegram/configure.py runs it before CMake, after the checkout.
 #
 # A piece is an exact fragment of the upstream code and its replacement.
@@ -26,6 +27,11 @@ HISTORY_INNER = 'Telegram/SourceFiles/history/history_inner_widget.cpp'
 COMPOSE_CONTROLS = (
     'Telegram/SourceFiles/history/view/controls/'
     'history_view_compose_controls.cpp')
+GROUP_CALL_BAR = 'Telegram/SourceFiles/ui/chat/group_call_bar.cpp'
+REQUESTS_BAR = 'Telegram/SourceFiles/ui/chat/requests_bar.cpp'
+TRANSLATE_BAR = (
+    'Telegram/SourceFiles/history/view/'
+    'history_view_translate_bar.cpp')
 
 FEATURES = [
     {
@@ -157,7 +163,8 @@ FEATURES = [
 	}
 	return itemTop;
 }''',
-                'replace': '''std::min(maxAllowed, std::max(bottomResult, byReactionResult)),
+                'replace': '''std::min(maxAllowed, std::max(bottomResult, byReactionResult))
+				- glassInset,
 			0);
 	}
 	return std::max(itemTop - glassInset, 0);
@@ -213,6 +220,15 @@ FEATURES = [
 				+ st::msgServiceMargin.top();''',
             },
             {
+                # Rendering the covered part is not a view of the messages.
+                'file': HISTORY_INNER,
+                'find': 'const auto metricsStale = '
+                    'base::take(_readMetricsStale);',
+                'replace': 'const auto metricsStale = '
+                    '!Telewhite::GlassCapturing()\n'
+                    '\t\t&& base::take(_readMetricsStale);',
+            },
+            {
                 'file': HISTORY_INNER,
                 'find': '_visibleAreaTop + skip)',
                 'replace': '_visibleAreaTop\n'
@@ -244,6 +260,124 @@ FEATURES = [
 		paintBackground(p, _wrap->rect(), clip);
 	}, _wrap->lifetime());
 	Telewhite::SetupComposeGlass(_wrap.get());''',
+            },
+        ],
+    },
+    {
+        'id': 'glass-bars',
+        'title': 'glass group call, requests and translate bars',
+        'pieces': [
+            {
+                'file': GROUP_CALL_BAR,
+                'find': '''#include "ui/chat/group_call_userpics.h"''',
+                'replace': '''#include "ui/chat/group_call_userpics.h"
+#include "telewhite/telewhite_glass.h"''',
+            },
+            {
+                'file': GROUP_CALL_BAR,
+                'find': '''_inner->resize(0, st::historyReplyHeight);
+	_inner->paintRequest(
+	) | rpl::on_next([=](QRect rect) {
+		auto p = Painter(_inner);
+		paint(p);
+	}, _inner->lifetime());''',
+                'replace': '''_inner->resize(0, st::historyReplyHeight);
+	const auto glass = _inner->lifetime().make_state<
+		Telewhite::GlassBackdropCache>();
+	_inner->paintRequest(
+	) | rpl::on_next([=](QRect rect) {
+		auto p = Painter(_inner);
+		const auto glassy = Telewhite::GlassUiEnabled()
+			&& Telewhite::PaintGlassBar(
+				p,
+				_inner,
+				_inner->rect(),
+				*glass,
+				st::historyComposeAreaBg->c,
+				false);
+		if (!glassy) {
+			p.fillRect(_inner->rect(), st::historyComposeAreaBg);
+		}
+		paint(p);
+	}, _inner->lifetime());''',
+            },
+            {
+                'file': GROUP_CALL_BAR,
+                'find': '''void GroupCallBar::paint(Painter &p) {
+	p.fillRect(_inner->rect(), st::historyComposeAreaBg);''',
+                'replace': '''void GroupCallBar::paint(Painter &p) {
+	// The background is painted by setupInner(), glass or solid.''',
+            },
+            {
+                'file': REQUESTS_BAR,
+                'find': '''#include "ui/chat/group_call_userpics.h"''',
+                'replace': '''#include "ui/chat/group_call_userpics.h"
+#include "telewhite/telewhite_glass.h"''',
+            },
+            {
+                'file': REQUESTS_BAR,
+                'find': '''_inner->resize(0, st::historyRequestsHeight);
+	_inner->paintRequest(
+	) | rpl::on_next([=](QRect rect) {
+		auto p = Painter(_inner);
+		paint(p);
+	}, _inner->lifetime());''',
+                'replace': '''_inner->resize(0, st::historyRequestsHeight);
+	const auto glass = _inner->lifetime().make_state<
+		Telewhite::GlassBackdropCache>();
+	_inner->paintRequest(
+	) | rpl::on_next([=](QRect rect) {
+		auto p = Painter(_inner);
+		const auto glassy = Telewhite::GlassUiEnabled()
+			&& Telewhite::PaintGlassBar(
+				p,
+				_inner,
+				_inner->rect(),
+				*glass,
+				st::historyComposeAreaBg->c,
+				false);
+		if (!glassy) {
+			p.fillRect(_inner->rect(), st::historyComposeAreaBg);
+		}
+		paint(p);
+	}, _inner->lifetime());''',
+            },
+            {
+                'file': REQUESTS_BAR,
+                'find': '''void RequestsBar::paint(Painter &p) {
+	p.fillRect(_inner->rect(), st::historyComposeAreaBg);''',
+                'replace': '''void RequestsBar::paint(Painter &p) {
+	// The background is painted by setupInner(), glass or solid.''',
+            },
+            {
+                'file': TRANSLATE_BAR,
+                'find': '''#include "settings/settings_credits_graphics.h" // CreditsEntryBoxStyleOverrides''',
+                'replace': '''#include "settings/settings_credits_graphics.h" // CreditsEntryBoxStyleOverrides
+#include "telewhite/telewhite_glass.h"''',
+            },
+            {
+                'file': TRANSLATE_BAR,
+                'find': '''button->paintRequest(
+	) | rpl::on_next([=](QRect clip) {
+		QPainter(button).fillRect(clip, st::historyComposeButtonBg);
+	}, button->lifetime());''',
+                'replace': '''const auto glass = button->lifetime().make_state<
+		Telewhite::GlassBackdropCache>();
+	button->paintRequest(
+	) | rpl::on_next([=](QRect clip) {
+		auto p = QPainter(button);
+		const auto glassy = Telewhite::GlassUiEnabled()
+			&& Telewhite::PaintGlassBar(
+				p,
+				button,
+				button->rect(),
+				*glass,
+				st::historyComposeButtonBg->c,
+				false);
+		if (!glassy) {
+			p.fillRect(clip, st::historyComposeButtonBg);
+		}
+	}, button->lifetime());''',
             },
         ],
     },
@@ -283,10 +417,10 @@ def apply_piece(source, piece):
     replace = piece['replace']
     if source.crlf:
         replace = replace.replace('\r\n', '\n').replace('\n', '\r\n')
-    done = anchor(piece['replace']).findall(source.text)
-    found = list(anchor(piece['find']).finditer(source.text))
-    if len(done) >= count and len(found) < count:
+    # Checked first: some replacements contain their own fragment.
+    if len(anchor(piece['replace']).findall(source.text)) >= count:
         return 'applied before'
+    found = list(anchor(piece['find']).finditer(source.text))
     if len(found) != count:
         return f'found {len(found)} of {count}: {piece["find"].split()[0]}...'
     for match in reversed(found):
