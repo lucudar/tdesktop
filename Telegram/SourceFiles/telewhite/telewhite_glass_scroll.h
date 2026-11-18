@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtWidgets/QWidget>
 
 #include <algorithm>
+#include <map>
 
 namespace Telewhite {
 
@@ -24,7 +25,6 @@ namespace Telewhite {
 // Telegram/build/telewhite_patch.py, so its own code stays upstream.
 
 inline constexpr auto kGlassScrollInsetProperty = "telewhiteGlassInset";
-inline constexpr auto kGlassContentProperty = "telewhiteGlassContent";
 
 // The messages under the glass bars, rendered for their frosted backdrop.
 struct GlassContent {
@@ -32,6 +32,18 @@ struct GlassContent {
 	QRect rect; // In the coordinates of the section.
 	quint64 revision = 0;
 };
+
+// Set while the covered part of a list is rendered for the backdrop:
+// such a paint is not a view of the messages, the list skips its
+// read metrics batch then.
+[[nodiscard]] inline bool &GlassCapturingFlag() {
+	static auto result = false;
+	return result;
+}
+
+[[nodiscard]] inline bool GlassCapturing() {
+	return GlassCapturingFlag();
+}
 
 // Fired when the covered part of a list changes, with the list scroll.
 [[nodiscard]] inline auto GlassScrollInsetUpdates()
@@ -80,14 +92,18 @@ struct GlassContent {
 	return inset + std::max(0, (scroll->height() - inset - blockHeight) / 2);
 }
 
+// The sections with the messages under the glass, no events are sent
+// to a section on its registration, it is safe in its destruction.
+[[nodiscard]] inline auto GlassContents()
+-> std::map<const QWidget*, GlassContent*>& {
+	static auto result = std::map<const QWidget*, GlassContent*>();
+	return result;
+}
+
 [[nodiscard]] inline GlassContent *GlassContentOf(const QWidget *section) {
-	if (!section) {
-		return nullptr;
-	}
-	const auto value = section->property(kGlassContentProperty);
-	return value.isValid()
-		? static_cast<GlassContent*>(value.value<void*>())
-		: nullptr;
+	const auto &contents = GlassContents();
+	const auto i = contents.find(section);
+	return (i != end(contents)) ? i->second : nullptr;
 }
 
 } // namespace Telewhite

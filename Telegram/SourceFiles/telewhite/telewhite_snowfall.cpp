@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "base/random.h"
 #include "base/timer.h"
+#include "dialogs/dialogs_widget.h"
 #include "telewhite/telewhite_glass_backdrop.h"
 #include "telewhite/telewhite_glass_scroll.h"
 #include "telewhite/telewhite_mods.h"
@@ -17,6 +18,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/elastic_scroll.h"
 #include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/scroll_area.h"
+#include "ui/widgets/tooltip.h"
 #include "styles/style_basic.h"
 #include "styles/palette.h"
 
@@ -589,8 +591,10 @@ bool ComposeWrapGlass::eventFilter(QObject *o, QEvent *e) {
 			}
 			raiseLater();
 		}
-	} else if ((e->type() == QEvent::ZOrderChange)
-		|| (e->type() == QEvent::Show)) {
+	} else if ((e->type() == QEvent::Show)
+		|| ((e->type() == QEvent::ZOrderChange)
+			&& !dynamic_cast<Ui::ImportantTooltip*>(o))) {
+		// The tooltips are raised over the frame by us, skip their order.
 		raiseLater();
 	}
 	return false;
@@ -605,6 +609,13 @@ void ComposeWrapGlass::raiseLater() {
 		_raiseScheduled = false;
 		if (!isHidden()) {
 			raise();
+			// The tooltips of the input area stay over the frame.
+			const auto stacked = _wrap->children();
+			for (const auto child : stacked) {
+				if (const auto tip = dynamic_cast<Ui::ImportantTooltip*>(child)) {
+					tip->raise();
+				}
+			}
 		}
 	});
 }
@@ -686,9 +697,7 @@ GlassScroll::GlassScroll(
 , _scroll(scroll) {
 	// The bars and the header are over the list now.
 	_scroll->lower();
-	_section->setProperty(
-		kGlassContentProperty,
-		QVariant::fromValue(static_cast<void*>(&_content)));
+	GlassContents()[_section.get()] = &_content;
 
 	rpl::merge(
 		_scroll->scrolls(),
@@ -703,6 +712,14 @@ GlassScroll::GlassScroll(
 		schedule();
 	}, _lifetime);
 
+	// The scroll bar stays below the glass bars.
+	GlassScrollInsetUpdates().events(
+	) | rpl::filter([=](not_null<QWidget*> which) {
+		return (which.get() == _scroll.get());
+	}) | rpl::on_next([=] {
+		_scroll->setBarTopInset(GlassScrollInset(_scroll.get()));
+	}, _lifetime);
+
 	EnabledValue(
 		Mod::GlassUi
 	) | rpl::skip(1) | rpl::on_next([=](bool enabled) {
@@ -712,7 +729,7 @@ GlassScroll::GlassScroll(
 }
 
 GlassScroll::~GlassScroll() {
-	_section->setProperty(kGlassContentProperty, QVariant());
+	GlassContents().erase(_section.get());
 }
 
 void GlassScroll::schedule() {
@@ -761,11 +778,13 @@ void GlassScroll::capture() {
 	{
 		auto p = QPainter(&image);
 		const auto position = inner->mapTo(_scroll.get(), QPoint());
+		GlassCapturingFlag() = true;
 		inner->render(
 			&p,
 			QPoint(),
 			QRegion(local.translated(-position)),
 			QWidget::DrawChildren);
+		GlassCapturingFlag() = false;
 	}
 	_content.image = std::move(image);
 	_content.rect = QRect(
@@ -798,6 +817,11 @@ void GlassScroll::relayout() {
 }
 
 } // namespace
+
+bool GlassSectionHasWallpaper(
+		not_null<Window::AbstractSectionWidget*> section) {
+	return !dynamic_cast<Dialogs::Widget*>(section.get());
+}
 
 void SetupSnowfall(not_null<Ui::RpWidget*> parent) {
 	Ui::CreateChild<SnowOverlay>(

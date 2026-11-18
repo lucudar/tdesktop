@@ -34,6 +34,10 @@ struct GlassSource {
 	const GlassContent *content = nullptr;
 };
 
+// The chats list is a section too, but it has no wallpaper.
+[[nodiscard]] bool GlassSectionHasWallpaper(
+	not_null<Window::AbstractSectionWidget*> section);
+
 // The chat section that paints the wallpaper under the widget.
 [[nodiscard]] inline Window::AbstractSectionWidget *GlassSection(
 		not_null<QWidget*> widget) {
@@ -46,7 +50,7 @@ struct GlassSource {
 		const auto section = dynamic_cast<Window::AbstractSectionWidget*>(
 			parent);
 		if (section) {
-			return section;
+			return GlassSectionHasWallpaper(section) ? section : nullptr;
 		} else if (parent->isWindow()) {
 			break;
 		}
