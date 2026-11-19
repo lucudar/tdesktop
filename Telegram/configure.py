@@ -13,6 +13,7 @@ sys.path.append(scriptPath + '/../cmake')
 import run_cmake
 sys.path.append(scriptPath + '/build')
 import qt_version
+import telewhite_patch
 
 executePath = os.getcwd()
 def finish(code):
@@ -68,5 +69,8 @@ if officialTarget != '':
                 arguments.append('-DTDESKTOP_API_HASH=' + apiHashMatch.group(1))
     if arch != '':
         arguments.append(arch)
+
+# Telewhite: patches of the large upstream sources, see build/telewhite_patch.py.
+telewhite_patch.apply_all(os.path.dirname(scriptPath))
 
 finish(run_cmake.run(scriptName, arguments))
