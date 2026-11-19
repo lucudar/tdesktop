@@ -13,6 +13,10 @@ struct CustomText {
 	QByteArray key;
 	QString title;
 	QString hint;
+
+	// Phrases with a number have a value for each plural form, one
+	// after another from the index: the own text goes to all of them.
+	ushort count = 1;
 };
 
 // Own texts instead of "online", "typing" and so on, on this computer only.
