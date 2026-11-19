@@ -14,6 +14,7 @@ import run_cmake
 sys.path.append(scriptPath + '/build')
 import qt_version
 import telewhite_patch
+import telewhite_patch_more
 
 executePath = os.getcwd()
 def finish(code):
