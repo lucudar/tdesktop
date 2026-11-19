@@ -59,6 +59,21 @@ struct GlassContent {
 		: 0;
 }
 
+// The top of a block centered in the uncovered part of a list.
+[[nodiscard]] inline int GlassCentered(
+		const QWidget *scroll,
+		int listHeight,
+		int blockHeight) {
+	const auto inset = GlassScrollInset(scroll);
+	return inset + std::max(0, (listHeight - inset - blockHeight) / 2);
+}
+
+// The scroll shift that keeps the messages in place when the bars above
+// the list change height: none when the bars float over the list.
+[[nodiscard]] inline int GlassScrollShift(const QWidget *scroll, int delta) {
+	return (GlassScrollInset(scroll) > 0) ? 0 : delta;
+}
+
 // The extra height of the list: the bars are over it, not above it.
 [[nodiscard]] inline int GlassScrollExtra(int barsBottom, bool allowed) {
 	return (allowed && GlassUiEnabled()) ? std::max(barsBottom, 0) : 0;

@@ -6,7 +6,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 '''
 # Build time patches of the upstream sources that are too large to keep
 # as whole copies in the fork: the history widget, the compose controls,
-# the small glass changes of the top bars and the menus of lib_ui.
+# the list of topics and replies, the small glass changes of the top bars
+# and the menus of lib_ui.
 # Telegram/configure.py runs it before CMake, after the checkout.
 #
 # A piece is an exact fragment of the upstream code and its replacement.
@@ -32,6 +33,8 @@ REQUESTS_BAR = 'Telegram/SourceFiles/ui/chat/requests_bar.cpp'
 TRANSLATE_BAR = (
     'Telegram/SourceFiles/history/view/'
     'history_view_translate_bar.cpp')
+LIST_WIDGET = 'Telegram/SourceFiles/history/view/history_view_list_widget.cpp'
+CHAT_SECTION = 'Telegram/SourceFiles/history/view/history_view_chat_section.cpp'
 POPUP_MENU = 'Telegram/lib_ui/ui/widgets/popup_menu.cpp'
 
 FEATURES = [
@@ -561,6 +564,144 @@ void TelewhitePaintGlass(
                 'replace': '''void PopupMenu::showPrepared(TriggeredSource source) {
 	TelewhiteCaptureGlass(this, _st, _inner);
 	startShowAnimation();''',
+            },
+        ],
+    },
+    {
+        'id': 'chat-glass',
+        'title': 'messages under the glass header in topics and replies',
+        'pieces': [
+            {
+                'file': CHAT_SECTION,
+                'find': '''#include "telewhite/telewhite_tweaks.h"''',
+                'replace': '''#include "telewhite/telewhite_tweaks.h"
+#include "telewhite/telewhite_snowfall.h"
+#include "telewhite/telewhite_glass_scroll.h"''',
+            },
+            {
+                'file': CHAT_SECTION,
+                'find': '''_scroll->setOverscrollBg(QColor(0, 0, 0, 0));''',
+                'replace': '''_scroll->setOverscrollBg(QColor(0, 0, 0, 0));
+	Telewhite::SetupGlassScroll(this, _scroll.get());''',
+            },
+            {
+                'file': CHAT_SECTION,
+                'find': '''takeTopDelta() + _scrollTopDelta''',
+                'replace': '''Telewhite::GlassScrollShift(
+			_scroll.get(),
+			takeTopDelta() + _scrollTopDelta)''',
+            },
+            {
+                'file': CHAT_SECTION,
+                'find': '''const auto scrollHeight = bottom - top;
+	const auto scrollSize = QSize(innerWidth, scrollHeight);
+	if (_scroll->size() != scrollSize) {''',
+                'replace': '''const auto glassInsetWas = Telewhite::GlassScrollInset(_scroll.get());
+	const auto glassTop = Telewhite::GlassScrollTop(
+		_scroll.get(),
+		top,
+		!_subsectionTabs);
+	const auto scrollHeight = bottom - glassTop;
+	const auto scrollSize = QSize(innerWidth, scrollHeight);
+	if (_scroll->size() != scrollSize
+		|| glassInsetWas != Telewhite::GlassScrollInset(_scroll.get())) {''',
+            },
+            {
+                'file': CHAT_SECTION,
+                'find': '''_scroll->move(tabsLeftSkip, top);''',
+                'replace': '''_scroll->move(tabsLeftSkip, glassTop);''',
+            },
+            {
+                'file': CHAT_SECTION,
+                'find': '''setAutocompleteBoundingRect(_scroll->geometry())''',
+                'replace': '''setAutocompleteBoundingRect(
+		Telewhite::GlassScrollVisible(_scroll.get()))''',
+            },
+            {
+                'file': CHAT_SECTION,
+                'find': '''setBoundings(_scroll->geometry())''',
+                'replace': '''setBoundings(
+			Telewhite::GlassScrollVisible(_scroll.get()))''',
+            },
+            {
+                'file': CHAT_SECTION,
+                'find': '''return mapToGlobal(_scroll->geometry());''',
+                'replace': '''return mapToGlobal(Telewhite::GlassScrollVisible(_scroll.get()));''',
+            },
+            {
+                'file': LIST_WIDGET,
+                'find': '''#include "telewhite/telewhite_tweaks.h"''',
+                'replace': '''#include "telewhite/telewhite_tweaks.h"
+#include "telewhite/telewhite_glass_scroll.h"''',
+            },
+            {
+                'file': LIST_WIDGET,
+                'find': '''const auto result = (_minHeight > full) ? (_minHeight - full) : 0;''',
+                'replace': '''// The first message starts below the glass bars over the list.
+	const auto result = std::max(
+		_minHeight - full,
+		Telewhite::GlassScrollInset(parentWidget()));''',
+            },
+            {
+                'file': LIST_WIDGET,
+                'count': 2,
+                'find': '''std::max(0, (_minHeight - about->height) / 2)''',
+                'replace': '''Telewhite::GlassCentered(
+					parentWidget(),
+					_minHeight,
+					about->height)''',
+            },
+            {
+                'file': LIST_WIDGET,
+                'find': '''auto dateTop = std::max(itemtop - collapsed, _visibleTop)''',
+                'replace': '''auto dateTop = std::max(
+				itemtop - collapsed,
+				_visibleTop + Telewhite::GlassScrollInset(parentWidget()))''',
+            },
+            {
+                'file': LIST_WIDGET,
+                'find': '''_visibleTop + skip)''',
+                'replace': '''_visibleTop
+					+ skip
+					+ Telewhite::GlassScrollInset(parentWidget()))''',
+            },
+            {
+                'file': LIST_WIDGET,
+                'find': '''const auto top = view->y();
+	const auto height = view->height();
+	const auto available = _visibleBottom - _visibleTop;
+	const auto heightLeft = (available - height);
+	if (heightLeft >= 0) {
+		return std::max(top - (heightLeft / 2), 0);
+	}
+	const auto highlight = _highlighter.state(view->data());
+	if (const auto range = FindHighlightYRange(view, highlight)) {
+		return AdjustScrollForRange(top, available, range);
+	}
+	return top;''',
+                'replace': '''const auto glassInset = Telewhite::GlassScrollInset(parentWidget());
+	const auto top = view->y();
+	const auto height = view->height();
+	const auto available = _visibleBottom - _visibleTop - glassInset;
+	const auto heightLeft = (available - height);
+	if (heightLeft >= 0) {
+		return std::max(top - (heightLeft / 2) - glassInset, 0);
+	}
+	const auto highlight = _highlighter.state(view->data());
+	if (const auto range = FindHighlightYRange(view, highlight)) {
+		return std::max(
+			AdjustScrollForRange(top, available, range) - glassInset,
+			0);
+	}
+	return std::max(top - glassInset, 0);''',
+            },
+            {
+                'file': LIST_WIDGET,
+                'find': '''const auto metricsStale = _readMetricsTracker
+		&& base::take(_readMetricsStale);''',
+                'replace': '''const auto metricsStale = !Telewhite::GlassCapturing()
+		&& _readMetricsTracker
+		&& base::take(_readMetricsStale);''',
             },
         ],
     },
