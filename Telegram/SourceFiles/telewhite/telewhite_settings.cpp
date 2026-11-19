@@ -984,6 +984,17 @@ void AddNestedRail(not_null<Ui::RpWidget*> row) {
 	return result;
 }
 
+// The value label on the right of the row. Ui::FlatLabel has no Q_OBJECT,
+// so findChild can't look for it.
+[[nodiscard]] Ui::FlatLabel *FindRowLabel(not_null<Ui::RpWidget*> row) {
+	for (const auto child : row->children()) {
+		if (const auto label = dynamic_cast<Ui::FlatLabel*>(child)) {
+			return label;
+		}
+	}
+	return nullptr;
+}
+
 // The "?" button right before the value on the right of the row, or in
 // the top right corner when the value moved under the row text. With
 // the outer widget the button is its child: rows that let the clicks
@@ -999,9 +1010,7 @@ void AttachLabelHelp(
 	const auto help = Ui::CreateChild<HelpButton>(outer ? outer : row);
 	help->show();
 	help->setClickedCallback(std::move(open));
-	const auto label = row->findChild<Ui::FlatLabel*>(
-		QString(),
-		Qt::FindDirectChildrenOnly);
+	const auto label = FindRowLabel(row);
 	const auto gap = style::ConvertScale(kHelpGap);
 	const auto place = [=, &rowSt] {
 		const auto shift = outer ? row->pos() : QPoint();
