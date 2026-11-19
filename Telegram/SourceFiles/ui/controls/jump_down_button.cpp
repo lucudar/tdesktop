@@ -7,9 +7,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/controls/jump_down_button.h"
 
+#include "telewhite/telewhite_glass.h"
 #include "ui/effects/ripple_animation.h"
 #include "ui/unread_badge_paint.h"
 #include "styles/style_chat_helpers.h"
+#include "styles/palette.h"
 
 namespace Ui {
 
@@ -38,9 +40,22 @@ void JumpDownButton::paintEvent(QPaintEvent *e) {
 
 	const auto over = isOver();
 	const auto down = isDown();
-	((over || down)
-		? _st.iconBelowOver
-		: _st.iconBelow).paint(p, _st.iconPosition, width());
+	const auto glass = Telewhite::GlassUiEnabled()
+		&& (_st.rippleAreaSize > 0);
+	if (glass) {
+		Telewhite::PaintGlassCircle(
+			p,
+			QRect(
+				_st.rippleAreaPosition,
+				QSize(_st.rippleAreaSize, _st.rippleAreaSize)),
+			(over || down)
+				? st::historyToDownBgOver->c
+				: st::historyToDownBg->c);
+	} else {
+		((over || down)
+			? _st.iconBelowOver
+			: _st.iconBelow).paint(p, _st.iconPosition, width());
+	}
 	paintRipple(p, _st.rippleAreaPosition.x(), _st.rippleAreaPosition.y());
 	((over || down)
 		? _st.iconAboveOver

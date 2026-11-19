@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 class HistoryItem;
 
 namespace Ui {
+class GenericBox;
 class PopupMenu;
 } // namespace Ui
 
@@ -25,6 +26,12 @@ namespace Telewhite {
 void RememberEdit(
 	not_null<HistoryItem*> item,
 	std::optional<EditVersion> was);
+
+// All versions of a message, the last one is its current text.
+// A long press on a version copies it with the formatting.
+void EditVersionsBox(
+	not_null<Ui::GenericBox*> box,
+	std::vector<EditVersion> versions);
 
 void AddEditHistoryAction(
 	not_null<Ui::PopupMenu*> menu,
