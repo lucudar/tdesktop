@@ -16,6 +16,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 
+#include <QtCore/QCoreApplication>
+
 namespace Telewhite {
 namespace {
 
@@ -74,6 +76,12 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::NowPlayingBio: return "telewhite-now-playing-bio";
 	case Mod::NowPlayingProfile: return "telewhite-now-playing-profile";
 	case Mod::NowPlayingSoundCloud: return "telewhite-now-playing-soundcloud";
+	case Mod::GhostScheduled: return "telewhite-ghost-scheduled";
+	case Mod::FolderTags: return "telewhite-folder-tags";
+	case Mod::GlassUi: return "telewhite-glass-ui";
+	case Mod::UnlimitedSearch: return "telewhite-unlimited-search";
+	case Mod::MentionDeletedReply: return "telewhite-mention-deleted-reply";
+	case Mod::CompactChats: return "telewhite-compact-chats";
 	case Mod::kCount: break;
 	}
 	Unexpected("Mod in Telewhite::Key.");
@@ -89,12 +97,21 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::NowPlayingBio:
 	case Mod::NowPlayingProfile:
 	case Mod::NowPlayingSoundCloud:
-	case Mod::GhostReadOnReply: return true;
+	case Mod::GhostReadOnReply:
+	case Mod::GlassUi:
+	case Mod::UnlimitedSearch:
+	case Mod::MentionDeletedReply: return true;
 	default: return false;
 	}
 }
 
 constexpr auto kOptionsCount = int(Option::kCount);
+
+// The bubble rounding of Telegram, the "Bubble rounding" option is read
+// by Ui::BubbleRadiusLarge() from the application property, see the
+// "bubble-radius" feature in Telegram/build/telewhite_patch_more.py.
+constexpr auto kDefaultBubbleRadius = 16;
+constexpr auto kBubbleRadiusProperty = "telewhiteBubbleRadius";
 
 [[nodiscard]] std::string_view Key(Option option) {
 	switch (option) {
@@ -109,6 +126,9 @@ constexpr auto kOptionsCount = int(Option::kCount);
 	case Option::Translator: return "telewhite-translator";
 	case Option::FakeCity: return "telewhite-fake-city";
 	case Option::TranslateSendTo: return "telewhite-translate-send-to";
+	case Option::GhostVisibleStatuses:
+		return "telewhite-ghost-visible-statuses";
+	case Option::BubbleRadius: return "telewhite-bubble-radius";
 	case Option::kCount: break;
 	}
 	Unexpected("Option in Telewhite::Key.");
@@ -120,6 +140,7 @@ constexpr auto kOptionsCount = int(Option::kCount);
 	case Option::VersionsTransparency: return 50;
 	case Option::SnowDensity:
 	case Option::SnowSpeed: return 1;
+	case Option::BubbleRadius: return kDefaultBubbleRadius;
 	default: return 0;
 	}
 }
@@ -132,6 +153,17 @@ constexpr auto kOptionsCount = int(Option::kCount);
 [[nodiscard]] auto OptionValues()
 -> std::array<rpl::variable<int>, kOptionsCount> & {
 	static auto result = std::array<rpl::variable<int>, kOptionsCount>();
+	return result;
+}
+
+struct LoadedState {
+	std::array<bool, kModsCount> mods = {};
+	std::array<int, kOptionsCount> options = {};
+	bool loaded = false;
+};
+
+[[nodiscard]] LoadedState &Loaded() {
+	static auto result = LoadedState();
 	return result;
 }
 
@@ -193,22 +225,68 @@ constexpr auto kRegistrationPoints = std::array<RegistrationPoint, 33>{ {
 void LoadMods(not_null<Core::Settings*> settings) {
 	auto &values = Values();
 	for (auto i = 0; i != kModsCount; ++i) {
-		values[i] = settings->readPref<bool>(
-			Key(Mod(i)),
-			DefaultValue(Mod(i)));
+		values[i] = !Removed(Mod(i))
+			&& settings->readPref<bool>(
+				Key(Mod(i)),
+				DefaultValue(Mod(i)));
 	}
 	auto &options = OptionValues();
+	auto bubbleRadiusSet = false;
 	for (auto i = 0; i != kOptionsCount; ++i) {
 		const auto option = Option(i);
 		const auto serialized = settings->readPref<QByteArray>(Key(option));
 		auto ok = false;
 		const auto value = serialized.toInt(&ok);
 		options[i] = ok ? value : DefaultValue(option);
+		if (option == Option::BubbleRadius) {
+			bubbleRadiusSet = ok;
+		}
+	}
+
+	auto &loaded = Loaded();
+	if (!loaded.loaded) {
+		loaded.loaded = true;
+		for (auto i = 0; i != kModsCount; ++i) {
+			loaded.mods[i] = values[i].current();
+		}
+		for (auto i = 0; i != kOptionsCount; ++i) {
+			loaded.options[i] = options[i].current();
+		}
+
+		// Read once by the chat style, before any bubble is painted.
+		// Without the option the radius is chosen as in Telegram.
+		const auto app = QCoreApplication::instance();
+		if (app && bubbleRadiusSet) {
+			app->setProperty(
+				kBubbleRadiusProperty,
+				options[int(Option::BubbleRadius)].current());
+		}
 	}
 
 }
 
+bool Removed(Mod mod) {
+	switch (mod) {
+	case Mod::LocalPins: // Unlimited pins are always on now.
+	case Mod::NowPlaying:
+	case Mod::NowPlayingSpotify:
+	case Mod::NowPlayingYandex:
+	case Mod::NowPlayingVk:
+	case Mod::NowPlayingOther:
+	case Mod::NowPlayingBio:
+	case Mod::NowPlayingProfile:
+	case Mod::NowPlayingSoundCloud:
+	case Mod::FakeLocation:
+	case Mod::FakeLocationAuto:
+	case Mod::FakeLocationWalk: return true;
+	default: return false;
+	}
+}
+
 bool CountedInBanner(Mod mod) {
+	if (Removed(mod)) {
+		return false;
+	}
 	switch (mod) {
 	case Mod::StreamerMode:
 	case Mod::NowPlaying:
@@ -229,7 +307,10 @@ bool CountedInBanner(Mod mod) {
 	case Mod::NowPlayingBio:
 	case Mod::NowPlayingProfile:
 	case Mod::NowPlayingSoundCloud:
-	case Mod::GhostReadOnReply: return false;
+	case Mod::GhostScheduled:
+	case Mod::GhostReadOnReply:
+	case Mod::MentionDeletedReply:
+	case Mod::GlassUi: return false;
 	default: return true;
 	}
 }
@@ -240,6 +321,20 @@ int OptionNow(Option option) {
 
 rpl::producer<int> OptionValue(Option option) {
 	return OptionValues()[int(option)].value();
+}
+
+bool LoadedValue(Mod mod) {
+	const auto &loaded = Loaded();
+	return loaded.loaded
+		? loaded.mods[int(mod)]
+		: Values()[int(mod)].current();
+}
+
+int LoadedOption(Option option) {
+	const auto &loaded = Loaded();
+	return loaded.loaded
+		? loaded.options[int(option)]
+		: OptionValues()[int(option)].current();
 }
 
 void SetOption(Option option, int value) {
@@ -263,6 +358,14 @@ TimeId AutoClearSeconds(AutoClearPeriod period) {
 	return 0;
 }
 
+bool GhostStatusHidden(GhostStatus status) {
+	if (!Enabled(Mod::GhostTyping)) {
+		return false;
+	}
+	const auto visible = OptionNow(Option::GhostVisibleStatuses);
+	return !(visible & (1 << int(status)));
+}
+
 bool Enabled(Mod mod) {
 	return Values()[int(mod)].current();
 }
@@ -272,6 +375,9 @@ rpl::producer<bool> EnabledValue(Mod mod) {
 }
 
 void SetEnabled(Mod mod, bool enabled) {
+	if (Removed(mod)) {
+		enabled = false;
+	}
 	Values()[int(mod)] = enabled;
 	Core::App().settings().writePref<bool>(Key(mod), enabled);
 	Core::App().saveSettingsDelayed();

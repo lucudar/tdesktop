@@ -66,6 +66,12 @@ enum class Mod {
 	NowPlayingBio,
 	NowPlayingProfile,
 	NowPlayingSoundCloud,
+	GhostScheduled,
+	FolderTags,
+	GlassUi,
+	UnlimitedSearch,
+	MentionDeletedReply,
+	CompactChats, // Applied after a restart.
 
 	kCount,
 };
@@ -81,6 +87,8 @@ enum class Option {
 	Translator, // TranslatorKind.
 	FakeCity, // Index in the cities list, -1 - custom point.
 	TranslateSendTo, // Index in SendLanguageNames().
+	GhostVisibleStatuses, // Bits of GhostStatus left visible to others.
+	BubbleRadius, // Pixels at 100% scale, 2 - 24, applied after a restart.
 
 	kCount,
 };
@@ -99,6 +107,23 @@ enum class TranslatorKind {
 	Google,
 };
 
+// The statuses hidden by "Don't send typing", each can be left visible.
+enum class GhostStatus {
+	Typing,
+	Voice,
+	Round,
+	Photo,
+	Video,
+	File,
+	Sticker,
+	Location,
+	Game,
+	Speaking,
+	Emoji, // Taps on the animated emoji and watching the taps.
+
+	kCount,
+};
+
 void LoadMods(not_null<Core::Settings*> settings);
 
 [[nodiscard]] bool Enabled(Mod mod);
@@ -108,11 +133,23 @@ void SetEnabled(Mod mod, bool enabled);
 // Sub-options are not counted as separate mods in the settings banner.
 [[nodiscard]] bool CountedInBanner(Mod mod);
 
+// Features removed from Telewhite (music in the profile, fake location):
+// they always stay off and are not shown in the settings.
+[[nodiscard]] bool Removed(Mod mod);
+
 [[nodiscard]] int OptionNow(Option option);
 [[nodiscard]] rpl::producer<int> OptionValue(Option option);
 void SetOption(Option option, int value);
 
+// The values Telewhite was started with: the mods that are applied
+// after a restart (compact chats, bubble rounding) compare with them.
+[[nodiscard]] bool LoadedValue(Mod mod);
+[[nodiscard]] int LoadedOption(Option option);
+
 [[nodiscard]] TimeId AutoClearSeconds(AutoClearPeriod period);
+
+// Ghost mode with "Don't send typing" doesn't send this status.
+[[nodiscard]] bool GhostStatusHidden(GhostStatus status);
 
 // Ghost mode keeps "listened" of voice / round messages local,
 // but self-destructing media are still reported as opened.
