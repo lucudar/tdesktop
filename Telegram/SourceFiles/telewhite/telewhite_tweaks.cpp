@@ -33,7 +33,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_dialogs.h"
 
 #ifdef Q_OS_WIN
-#include "base/platform/win/base_windows_h.h"
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif // NOMINMAX
+#include <windows.h>
 #endif // Q_OS_WIN
 
 namespace Telewhite {
