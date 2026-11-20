@@ -15,6 +15,7 @@ sys.path.append(scriptPath + '/build')
 import qt_version
 import telewhite_patch
 import telewhite_patch_more
+import telewhite_build_cache
 
 executePath = os.getcwd()
 def finish(code):
@@ -73,5 +74,8 @@ if officialTarget != '':
 
 # Telewhite: patches of the large upstream sources, see build/telewhite_patch.py.
 telewhite_patch.apply_all(os.path.dirname(scriptPath))
+
+# Telewhite: a cached out folder from another compiler is dropped.
+telewhite_build_cache.check_compiler(os.path.dirname(scriptPath))
 
 finish(run_cmake.run(scriptName, arguments))
