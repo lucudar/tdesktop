@@ -6,7 +6,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+#include <QtGui/QPainterPath>
+
 class PeerData;
+class UserData;
+class HistoryItem;
 
 namespace Api {
 struct SendAction;
@@ -69,5 +73,34 @@ void SetupStoryRings(rpl::lifetime &lifetime);
 // "Compact chats list": lower rows with smaller userpics. Called once
 // right after the styles are made, before any chats list is created.
 void ApplyStyleTweaks();
+
+// "Confirm calls": true when the call waits for the confirmation box,
+// then the start callback calls Calls::Instance::startOutgoingCall again.
+[[nodiscard]] bool ConfirmOutgoingCall(
+	not_null<UserData*> user,
+	bool video,
+	Fn<void()> start);
+
+// "Hide blocked users": their messages in groups are not shown.
+[[nodiscard]] bool HiddenFromBlocked(not_null<const HistoryItem*> item);
+
+// "Delete 'joined Telegram'": marked when the service message is made.
+void MarkContactSignUp(not_null<const HistoryItem*> item);
+
+// The mods that work with the whole account: called once per session.
+void SetupSessionMods(not_null<Main::Session*> session);
+
+// Glass chat list: the hovered and the opened chats are rounded capsules.
+// False when the row is painted as in Telegram.
+bool PaintGlassRow(
+	QPainter &p,
+	QRect geometry,
+	const QBrush &bg,
+	const QBrush &listBg,
+	bool highlighted,
+	bool active);
+
+// The capsule shape for the ripple, empty without the glass chat list.
+[[nodiscard]] QPainterPath GlassRowClip(QRect geometry);
 
 } // namespace Telewhite

@@ -72,6 +72,10 @@ enum class Mod {
 	UnlimitedSearch,
 	MentionDeletedReply,
 	CompactChats, // Applied after a restart.
+	ConfirmCalls,
+	HideBlocked,
+	DeleteJoined,
+	GlassChats,
 
 	kCount,
 };

@@ -6,10 +6,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "telewhite/telewhite_tweaks.h"
 
+#include "api/api_blocked_peers.h"
 #include "api/api_common.h"
+#include "apiwrap.h"
+#include "base/weak_ptr.h"
+#include "boxes/abstract_box.h"
 #include "base/unixtime.h"
 #include "data/data_changes.h"
 #include "data/data_chat_filters.h"
+#include "data/data_histories.h"
 #include "data/data_peer.h"
 #include "data/data_peer_values.h"
 #include "data/data_session.h"
@@ -18,6 +23,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_item.h"
 #include "main/main_session.h"
 #include "telewhite/telewhite_mods.h"
+#include "ui/boxes/confirm_box.h"
 #include "ui/effects/outline_segments.h"
 #include "ui/painter.h"
 #include "ui/rp_widget.h"
@@ -396,6 +402,169 @@ std::optional<uint8> FolderTagColor(const Data::ChatFilter &filter) {
 		return std::nullopt;
 	}
 	return uint8(std::abs(int(filter.id())) % kColorsCount);
+}
+
+namespace {
+
+// The "joined Telegram" service messages, marked when they are made.
+using JoinedKey = std::pair<uint64, FullMsgId>;
+
+[[nodiscard]] base::flat_set<JoinedKey> &JoinedMessages() {
+	static auto result = base::flat_set<JoinedKey>();
+	return result;
+}
+
+[[nodiscard]] JoinedKey JoinedKeyOf(not_null<const HistoryItem*> item) {
+	return { item->history()->session().uniqueId(), item->fullId() };
+}
+
+// The glass chat list: the hovered and the opened chats are floating
+// rounded capsules, the rest of the row shows the list background.
+constexpr auto kGlassRowSkipX = 6;
+constexpr auto kGlassRowSkipY = 2;
+constexpr auto kGlassRowRadius = 12;
+
+[[nodiscard]] bool GlassRowsShown() {
+	return Enabled(Mod::GlassUi) && Enabled(Mod::GlassChats);
+}
+
+[[nodiscard]] QRect GlassRowPill(QRect geometry) {
+	const auto skipX = style::ConvertScale(kGlassRowSkipX);
+	const auto skipY = style::ConvertScale(kGlassRowSkipY);
+	return geometry.marginsRemoved({ skipX, skipY, skipX, skipY });
+}
+
+// The server tells who is blocked only in the list of the blocked,
+// it is read once on the start, page by page.
+void LoadBlocked(not_null<Main::Session*> session, int offset) {
+	const auto weak = base::make_weak(session);
+	session->api().blockedPeers().request(offset, [=](
+			const Api::BlockedPeers::Slice &slice) {
+		const auto strong = weak.get();
+		if (!strong) {
+			return;
+		}
+		for (const auto &entry : slice.list) {
+			if (const auto peer = strong->data().peerLoaded(entry.id)) {
+				peer->setIsBlocked(true);
+			}
+		}
+		const auto next = offset + int(slice.list.size());
+		if (!slice.list.empty() && next < slice.total) {
+			LoadBlocked(strong, next);
+		}
+	});
+}
+
+} // namespace
+
+bool ConfirmOutgoingCall(
+		not_null<UserData*> user,
+		bool video,
+		Fn<void()> start) {
+	static auto confirmed = false;
+	if (base::take(confirmed) || !Enabled(Mod::ConfirmCalls)) {
+		return false;
+	}
+	const auto name = user->name();
+	Ui::show(Ui::MakeConfirmBox({
+		.text = (video
+			? (u"Начать видеозвонок с "_q + name + u"?"_q)
+			: (u"Позвонить "_q + name + u"?"_q)),
+		.confirmed = [=](Fn<void()> &&close) {
+			close();
+			confirmed = true;
+			start();
+		},
+		.confirmText = (video ? u"Видеозвонок"_q : u"Позвонить"_q),
+	}));
+	return true;
+}
+
+bool HiddenFromBlocked(not_null<const HistoryItem*> item) {
+	if (!Enabled(Mod::HideBlocked) || item->out()) {
+		return false;
+	}
+	const auto peer = item->history()->peer;
+	if (peer->isUser()) {
+		return false;
+	}
+	const auto from = item->from();
+	return (from != peer) && from->isBlocked();
+}
+
+void MarkContactSignUp(not_null<const HistoryItem*> item) {
+	JoinedMessages().emplace(JoinedKeyOf(item));
+}
+
+void SetupSessionMods(not_null<Main::Session*> session) {
+	if (Enabled(Mod::HideBlocked)) {
+		LoadBlocked(session, 0);
+	}
+	session->data().newItemAdded(
+	) | rpl::filter([](not_null<HistoryItem*> item) {
+		return Enabled(Mod::DeleteJoined)
+			&& JoinedMessages().contains(JoinedKeyOf(item));
+	}) | rpl::on_next([=](not_null<HistoryItem*> item) {
+		JoinedMessages().remove(JoinedKeyOf(item));
+		const auto id = item->fullId();
+		crl::on_main(session.get(), [=] {
+			if (session->data().message(id)) {
+				session->data().histories().deleteMessages(
+					MessageIdsList{ id },
+					false);
+				session->data().sendHistoryChangeNotifications();
+			}
+		});
+	}, session->lifetime());
+}
+
+bool PaintGlassRow(
+		QPainter &p,
+		QRect geometry,
+		const QBrush &bg,
+		const QBrush &listBg,
+		bool highlighted,
+		bool active) {
+	if (!GlassRowsShown()) {
+		return false;
+	}
+	p.fillRect(geometry, listBg);
+	if (!highlighted) {
+		return true;
+	}
+	const auto pill = QRectF(GlassRowPill(geometry));
+	const auto radius = float64(style::ConvertScale(kGlassRowRadius));
+	auto hq = PainterHighQualityEnabler(p);
+	p.setPen(Qt::NoPen);
+	p.setBrush(bg);
+	p.drawRoundedRect(pill, radius, radius);
+	auto shine = QLinearGradient(pill.topLeft(), pill.bottomLeft());
+	shine.setColorAt(0., QColor(255, 255, 255, active ? 46 : 22));
+	shine.setColorAt(0.55, QColor(255, 255, 255, 0));
+	shine.setColorAt(1., QColor(255, 255, 255, 0));
+	p.setBrush(QBrush(shine));
+	p.drawRoundedRect(pill, radius, radius);
+	if (active) {
+		const auto line = style::ConvertScaleExact(1.);
+		const auto half = line / 2.;
+		p.setBrush(Qt::NoBrush);
+		p.setPen(QPen(QColor(255, 255, 255, 52), line));
+		p.drawRoundedRect(
+			pill.marginsRemoved(QMarginsF(half, half, half, half)),
+			radius - half,
+			radius - half);
+	}
+	return true;
+}
+
+QPainterPath GlassRowClip(QRect geometry) {
+	auto result = QPainterPath();
+	if (GlassRowsShown()) {
+		const auto radius = float64(style::ConvertScale(kGlassRowRadius));
+		result.addRoundedRect(QRectF(GlassRowPill(geometry)), radius, radius);
+	}
+	return result;
 }
 
 } // namespace Telewhite

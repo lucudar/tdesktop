@@ -82,6 +82,10 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::UnlimitedSearch: return "telewhite-unlimited-search";
 	case Mod::MentionDeletedReply: return "telewhite-mention-deleted-reply";
 	case Mod::CompactChats: return "telewhite-compact-chats";
+	case Mod::ConfirmCalls: return "telewhite-confirm-calls";
+	case Mod::HideBlocked: return "telewhite-hide-blocked";
+	case Mod::DeleteJoined: return "telewhite-delete-joined";
+	case Mod::GlassChats: return "telewhite-glass-chats";
 	case Mod::kCount: break;
 	}
 	Unexpected("Mod in Telewhite::Key.");
@@ -99,6 +103,7 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::NowPlayingSoundCloud:
 	case Mod::GhostReadOnReply:
 	case Mod::GlassUi:
+	case Mod::GlassChats:
 	case Mod::UnlimitedSearch:
 	case Mod::MentionDeletedReply: return true;
 	default: return false;
@@ -310,6 +315,7 @@ bool CountedInBanner(Mod mod) {
 	case Mod::GhostScheduled:
 	case Mod::GhostReadOnReply:
 	case Mod::MentionDeletedReply:
+	case Mod::GlassChats:
 	case Mod::GlassUi: return false;
 	default: return true;
 	}

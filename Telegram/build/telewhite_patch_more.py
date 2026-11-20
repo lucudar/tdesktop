@@ -25,6 +25,11 @@ TABBED_SELECTOR = 'Telegram/SourceFiles/chat_helpers/tabbed_selector.cpp'
 TABBED_PANEL_H = 'Telegram/SourceFiles/chat_helpers/tabbed_panel.h'
 TABBED_PANEL = 'Telegram/SourceFiles/chat_helpers/tabbed_panel.cpp'
 GIFS_LIST = 'Telegram/SourceFiles/chat_helpers/gifs_list_widget.cpp'
+CALLS_INSTANCE = 'Telegram/SourceFiles/calls/calls_instance.cpp'
+VIEW_ELEMENT = 'Telegram/SourceFiles/history/view/history_view_element.cpp'
+HISTORY_ITEM = 'Telegram/SourceFiles/history/history_item.cpp'
+MAIN_SESSION = 'Telegram/SourceFiles/main/main_session.cpp'
+DIALOGS_LAYOUT = 'Telegram/SourceFiles/dialogs/ui/dialogs_layout.cpp'
 
 FEATURES = [
     {
@@ -398,6 +403,146 @@ QImage TabbedPanel::grabForAnimation() {''',
 	}
 
 	setupSearch();''',
+            },
+        ],
+    },
+    {
+        # "Confirm calls": the box before every new outgoing call, see
+        # Telewhite::ConfirmOutgoingCall() in telewhite_tweaks.cpp.
+        'id': 'confirm-calls',
+        'title': 'confirmation before the outgoing calls',
+        'pieces': [
+            {
+                'file': CALLS_INSTANCE,
+                'find': '''#include "ui/boxes/confirm_box.h"''',
+                'replace': '''#include "ui/boxes/confirm_box.h"
+#include "telewhite/telewhite_tweaks.h"''',
+            },
+            {
+                'file': CALLS_INSTANCE,
+                'find': '''		StartOutgoingCallArgs args) {
+	if (activateCurrentCall()
+		|| (!args.isConfirmed && activateUnconfirmedCall(user))) {
+		return;
+	}
+	if (user->callsStatus() == UserData::CallsStatus::Private) {''',
+                'replace': '''		StartOutgoingCallArgs args) {
+	if (activateCurrentCall()
+		|| (!args.isConfirmed && activateUnconfirmedCall(user))) {
+		return;
+	}
+	if (Telewhite::ConfirmOutgoingCall(
+			user,
+			args.video,
+			crl::guard(this, [=] { startOutgoingCall(user, args); }))) {
+		return;
+	}
+	if (user->callsStatus() == UserData::CallsStatus::Private) {''',
+            },
+        ],
+    },
+    {
+        # "Hide blocked users": their messages in groups get no height,
+        # like the hidden parts of an album.
+        'id': 'hide-blocked',
+        'title': 'messages of the blocked users hidden in groups',
+        'pieces': [
+            {
+                'file': VIEW_ELEMENT,
+                'find': '''#include "telewhite/telewhite_mods.h"''',
+                'replace': '''#include "telewhite/telewhite_mods.h"
+#include "telewhite/telewhite_tweaks.h"''',
+            },
+            {
+                'file': VIEW_ELEMENT,
+                'find': '''bool Element::isHidden() const {
+	return isHiddenByGroup();
+}''',
+                'replace': '''bool Element::isHidden() const {
+	return isHiddenByGroup() || Telewhite::HiddenFromBlocked(data());
+}''',
+            },
+        ],
+    },
+    {
+        # "Delete 'joined Telegram'": the service message is marked when it
+        # is made and deleted for me when it comes as a new message, see
+        # Telewhite::SetupSessionMods() in telewhite_tweaks.cpp.
+        'id': 'delete-joined',
+        'title': 'delete the "joined Telegram" messages and account mods',
+        'pieces': [
+            {
+                'file': HISTORY_ITEM,
+                'find': '''#include "history/history_item_helpers.h"''',
+                'replace': '''#include "history/history_item_helpers.h"
+#include "telewhite/telewhite_tweaks.h"''',
+            },
+            {
+                'file': HISTORY_ITEM,
+                'find': '''	}, [&](const MTPDmessageActionContactSignUp &) {
+		_flags |= MessageFlag::IsContactSignUp;''',
+                'replace': '''	}, [&](const MTPDmessageActionContactSignUp &) {
+		_flags |= MessageFlag::IsContactSignUp;
+		Telewhite::MarkContactSignUp(this);''',
+            },
+            {
+                'file': MAIN_SESSION,
+                'find': '''#include "telewhite/telewhite_now_playing.h"''',
+                'replace': '''#include "telewhite/telewhite_now_playing.h"
+#include "telewhite/telewhite_tweaks.h"''',
+            },
+            {
+                'file': MAIN_SESSION,
+                'find': '''	Telewhite::NowPlaying::Start(this);''',
+                'replace': '''	Telewhite::NowPlaying::Start(this);
+	Telewhite::SetupSessionMods(this);''',
+            },
+        ],
+    },
+    {
+        # Glass chat list: the hovered and the opened chats are capsules,
+        # see Telewhite::PaintGlassRow() in telewhite_tweaks.cpp.
+        'id': 'glass-chats',
+        'title': 'glass capsules in the chats list',
+        'pieces': [
+            {
+                'file': DIALOGS_LAYOUT,
+                'find': '''#include "telewhite/telewhite_local_pins.h"''',
+                'replace': '''#include "telewhite/telewhite_local_pins.h"
+#include "telewhite/telewhite_tweaks.h"''',
+            },
+            {
+                'file': DIALOGS_LAYOUT,
+                'find': '''	p.fillRect(geometry, bg);
+	if (!(flags & Flag::TopicJumpRipple)) {
+		auto ripple = context.active
+			? st::dialogsRippleBgActive
+			: st::dialogsRippleBg;
+		row->paintRipple(p, 0, 0, context.width, &ripple->c);
+	}''',
+                'replace': '''	if (!Telewhite::PaintGlassRow(
+			p,
+			geometry,
+			bg,
+			context.currentBg,
+			context.active || context.selected,
+			context.active)) {
+		p.fillRect(geometry, bg);
+	}
+	if (!(flags & Flag::TopicJumpRipple)) {
+		auto ripple = context.active
+			? st::dialogsRippleBgActive
+			: st::dialogsRippleBg;
+		const auto telewhiteClip = Telewhite::GlassRowClip(geometry);
+		if (!telewhiteClip.isEmpty()) {
+			p.save();
+			p.setClipPath(telewhiteClip, Qt::IntersectClip);
+		}
+		row->paintRipple(p, 0, 0, context.width, &ripple->c);
+		if (!telewhiteClip.isEmpty()) {
+			p.restore();
+		}
+	}''',
             },
         ],
     },
