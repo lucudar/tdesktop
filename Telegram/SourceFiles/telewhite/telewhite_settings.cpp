@@ -1272,6 +1272,98 @@ void AddPercentSlider(
 	});
 }
 
+// Bubble rounding in pixels at 100% scale: 2 - 24, two pixels a step.
+constexpr auto kBubbleRadiusMin = 2;
+constexpr auto kBubbleRadiusStep = 2;
+constexpr auto kBubbleRadiusSteps = 12;
+constexpr auto kBubbleRadiusMax = kBubbleRadiusMin
+	+ (kBubbleRadiusSteps - 1) * kBubbleRadiusStep;
+
+[[nodiscard]] QString BubbleRadiusTitle() {
+	return u"Скругление пузырей"_q;
+}
+
+[[nodiscard]] object_ptr<Ui::RpWidget> CreateBubbleRadiusSlider(
+		not_null<Ui::VerticalLayout*> container,
+		not_null<Window::SessionController*> controller) {
+	const auto option = Option::BubbleRadius;
+	auto result = object_ptr<Ui::VerticalLayout>(container);
+	const auto raw = result.data();
+	const auto &rowSt = SliderLabelStyle();
+	const auto label = AddButtonWithLabel(
+		raw,
+		rpl::single(BubbleRadiusTitle()),
+		OptionValue(option) | rpl::map([](int value) {
+			return QString::number(value) + u" px"_q;
+		}),
+		rowSt);
+	label->setAttribute(Qt::WA_TransparentForMouseEvents);
+	const auto slider = raw->add(
+		object_ptr<Ui::MediaSlider>(raw, st::autoDownloadLimitSlider),
+		st::autoDownloadLimitPadding);
+	slider->resize(st::autoDownloadLimitSlider.seekSize);
+	slider->setPseudoDiscrete(
+		kBubbleRadiusSteps,
+		[](int index) {
+			return kBubbleRadiusMin + index * kBubbleRadiusStep;
+		},
+		std::clamp(
+			OptionNow(option),
+			kBubbleRadiusMin,
+			kBubbleRadiusMax),
+		[=](int value) {
+			if (OptionNow(option) != value) {
+				SetOption(option, value);
+			}
+		});
+	AttachLabelHelp(label.get(), rowSt, [=] {
+		ShowHelp(
+			controller,
+			rpl::single(BubbleRadiusTitle()),
+			u"Насколько круглые углы у\u00A0пузырей сообщений, фото и\u00A0файлов: от\u00A0почти квадратных до\u00A0совсем мягких. 16\u00A0px как в\u00A0Telegram. Применяется после перезапуска."_q);
+	}, raw);
+	return result;
+}
+
+void AddBubbleRadiusSlider(SectionBuilder &builder) {
+	builder.add([=](const WidgetContext &ctx) {
+		return SectionBuilder::WidgetToAdd{
+			.widget = CreateBubbleRadiusSlider(
+				ctx.container,
+				ctx.controller),
+		};
+	}, [=] {
+		return SearchEntry{
+			.id = u"telewhite/design/bubble-radius"_q,
+			.title = BubbleRadiusTitle(),
+			.keywords = {
+				u"скругление"_q,
+				u"углы"_q,
+				u"радиус"_q,
+				u"пузыри"_q,
+				u"bubbles"_q,
+			},
+		};
+	});
+}
+
+// The bubble rounding and the compact chats list are applied on the start,
+// the row is shown while the values differ from the ones in use.
+void AddRestartRow(SectionBuilder &builder) {
+	builder.addButton({
+		.title = rpl::single(u"Перезапустить, чтобы применить"_q),
+		.st = &st::settingsButtonLightNoIcon,
+		.onClick = [] { Core::Restart(); },
+		.shown = rpl::combine(
+			OptionValue(Option::BubbleRadius),
+			EnabledValue(Mod::CompactChats)
+		) | rpl::map([](int radius, bool compact) {
+			return (radius != LoadedOption(Option::BubbleRadius))
+				|| (compact != LoadedValue(Mod::CompactChats));
+		}),
+	});
+}
+
 [[nodiscard]] QString ExcludedFoldersText(not_null<Main::Session*> session) {
 	const auto chosen = ExcludedFolders(session);
 	auto names = QStringList();
@@ -2086,7 +2178,7 @@ void BuildDesign(SectionBuilder &builder) {
 		Scene::ThemedIcon,
 		{ u"стекло"_q, u"стеклянный"_q, u"плашки"_q, u"glass"_q });
 	glass.preview = false;
-	glass.about = u"Шапка чата, поле ввода, плашки и\u00A0меню становятся матовым стеклом: сквозь них видны сообщения и\u00A0обои."_q;
+	glass.about = u"Шапка чата, поле ввода, плашки, меню и\u00A0панель эмодзи становятся матовым стеклом: сквозь них видны сообщения и\u00A0обои. Панель эмодзи меняется после перезапуска."_q;
 	AddToggle(builder, std::move(glass));
 	AddFontButton(builder);
 	AddDesignToggle(
@@ -2096,6 +2188,22 @@ void BuildDesign(SectionBuilder &builder) {
 		Mod::NoBubbleTails,
 		Scene::NoBubbleTails,
 		{ u"хвостики"_q, u"облачка"_q, u"пузыри"_q, u"bubbles"_q });
+	AddBubbleRadiusSlider(builder);
+	auto compact = ModToggleText(
+		u"telewhite/design/compact-chats"_q,
+		u"Компактный список чатов"_q,
+		Mod::CompactChats,
+		Scene::ThemedIcon,
+		{
+			u"компактный"_q,
+			u"список чатов"_q,
+			u"плотный"_q,
+			u"compact"_q,
+		});
+	compact.preview = false;
+	compact.about = u"Строки в\u00A0списке чатов ниже, аватарки меньше: на\u00A0экран помещается больше чатов. Применяется после перезапуска."_q;
+	AddToggle(builder, std::move(compact));
+	AddRestartRow(builder);
 	AddDesignToggle(
 		builder,
 		u"author-online"_q,
