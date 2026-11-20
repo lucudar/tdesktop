@@ -6,6 +6,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+#include "base/object_ptr.h"
+
 #include <QtGui/QPainterPath>
 
 class PeerData;
@@ -26,6 +28,7 @@ class Session;
 
 namespace Ui {
 class RpWidget;
+class InputField;
 } // namespace Ui
 
 namespace Telewhite {
@@ -102,5 +105,18 @@ bool PaintGlassRow(
 
 // The capsule shape for the ripple, empty without the glass chat list.
 [[nodiscard]] QPainterPath GlassRowClip(QRect geometry);
+
+// "Dictation instead of voice messages": a press on the microphone opens
+// the Windows voice typing (Win+H) for the message field. True when the
+// voice message should not be recorded.
+[[nodiscard]] bool StartDictation(not_null<Ui::InputField*> field, bool voice);
+
+// "Glass profile": the profile sections are rounded cards over the group
+// background, the action buttons get a glass shine.
+[[nodiscard]] bool GlassProfileShown();
+[[nodiscard]] object_ptr<Ui::RpWidget> WrapProfileCard(
+	not_null<QWidget*> parent,
+	object_ptr<Ui::RpWidget> content);
+void PaintGlassButtonShine(QPainter &p, QRect rect, int radius);
 
 } // namespace Telewhite

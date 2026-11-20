@@ -76,6 +76,8 @@ enum class Mod {
 	HideBlocked,
 	DeleteJoined,
 	GlassChats,
+	GlassProfile,
+	Dictation, // Windows only.
 
 	kCount,
 };
