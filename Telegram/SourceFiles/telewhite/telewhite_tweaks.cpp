@@ -21,6 +21,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/effects/outline_segments.h"
 #include "ui/painter.h"
 #include "ui/rp_widget.h"
+#include "ui/style/style_core_scale.h"
 #include "styles/style_chat.h"
 #include "styles/style_dialogs.h"
 
@@ -326,6 +327,59 @@ void ApplyGhostSchedule(Api::SendAction &action) {
 		return;
 	}
 	action.options.scheduled = base::unixtime::now() + kDelay;
+}
+
+void ApplyStyleTweaks() {
+	static auto applied = false;
+	if (applied || !Enabled(Mod::CompactChats)) {
+		return;
+	}
+	applied = true;
+
+	// What the compact row has less than the usual one, at 100% scale.
+	struct Shift {
+		int height = 0;
+		int photoTop = 0;
+		int nameTop = 0;
+		int textTop = 0;
+		int tagTop = 0;
+	};
+	const auto compact = [](const style::DialogRow &base, Shift shift) {
+		// The styles are filled once on the start, changing them right
+		// after that is the same as other values in the .style files.
+		auto &row = const_cast<style::DialogRow&>(base);
+		const auto scaled = [](int value) {
+			return style::ConvertScale(value);
+		};
+		row.photoSize -= scaled(8);
+		row.nameLeft -= scaled(10);
+		row.textLeft -= scaled(10);
+		row.height -= scaled(shift.height);
+		row.padding.setTop(row.padding.top() - scaled(shift.photoTop));
+		row.nameTop -= scaled(shift.nameTop);
+		row.textTop -= scaled(shift.textTop);
+		row.tagTop -= scaled(shift.tagTop);
+	};
+	compact(st::defaultDialogRow, {
+		.height = 12,
+		.photoTop = 2,
+		.nameTop = 4,
+		.textTop = 8,
+	});
+	compact(st::taggedDialogRow, {
+		.height = 10,
+		.photoTop = 2,
+		.nameTop = 4,
+		.textTop = 6,
+		.tagTop = 8,
+	});
+
+	// Forums keep their height for the topics line, the userpics match.
+	compact(st::forumDialogRow, {});
+	compact(st::taggedForumDialogRow, {});
+
+	// The search results and the list paddings count with this one.
+	const_cast<int&>(st::dialogsRowHeight) = st::defaultDialogRow.height;
 }
 
 bool FolderTagsShown(bool serverEnabled) {

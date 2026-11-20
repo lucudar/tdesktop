@@ -16,6 +16,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 
+#include <QtCore/QCoreApplication>
+
 namespace Telewhite {
 namespace {
 
@@ -79,6 +81,7 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::GlassUi: return "telewhite-glass-ui";
 	case Mod::UnlimitedSearch: return "telewhite-unlimited-search";
 	case Mod::MentionDeletedReply: return "telewhite-mention-deleted-reply";
+	case Mod::CompactChats: return "telewhite-compact-chats";
 	case Mod::kCount: break;
 	}
 	Unexpected("Mod in Telewhite::Key.");
@@ -104,6 +107,12 @@ constexpr auto kModsCount = int(Mod::kCount);
 
 constexpr auto kOptionsCount = int(Option::kCount);
 
+// The bubble rounding of Telegram, the "Bubble rounding" option is read
+// by Ui::BubbleRadiusLarge() from the application property, see the
+// "bubble-radius" feature in Telegram/build/telewhite_patch_more.py.
+constexpr auto kDefaultBubbleRadius = 16;
+constexpr auto kBubbleRadiusProperty = "telewhiteBubbleRadius";
+
 [[nodiscard]] std::string_view Key(Option option) {
 	switch (option) {
 	case Option::DeletedTransparency:
@@ -119,6 +128,7 @@ constexpr auto kOptionsCount = int(Option::kCount);
 	case Option::TranslateSendTo: return "telewhite-translate-send-to";
 	case Option::GhostVisibleStatuses:
 		return "telewhite-ghost-visible-statuses";
+	case Option::BubbleRadius: return "telewhite-bubble-radius";
 	case Option::kCount: break;
 	}
 	Unexpected("Option in Telewhite::Key.");
@@ -130,6 +140,7 @@ constexpr auto kOptionsCount = int(Option::kCount);
 	case Option::VersionsTransparency: return 50;
 	case Option::SnowDensity:
 	case Option::SnowSpeed: return 1;
+	case Option::BubbleRadius: return kDefaultBubbleRadius;
 	default: return 0;
 	}
 }
@@ -142,6 +153,17 @@ constexpr auto kOptionsCount = int(Option::kCount);
 [[nodiscard]] auto OptionValues()
 -> std::array<rpl::variable<int>, kOptionsCount> & {
 	static auto result = std::array<rpl::variable<int>, kOptionsCount>();
+	return result;
+}
+
+struct LoadedState {
+	std::array<bool, kModsCount> mods = {};
+	std::array<int, kOptionsCount> options = {};
+	bool loaded = false;
+};
+
+[[nodiscard]] LoadedState &Loaded() {
+	static auto result = LoadedState();
 	return result;
 }
 
@@ -209,12 +231,36 @@ void LoadMods(not_null<Core::Settings*> settings) {
 				DefaultValue(Mod(i)));
 	}
 	auto &options = OptionValues();
+	auto bubbleRadiusSet = false;
 	for (auto i = 0; i != kOptionsCount; ++i) {
 		const auto option = Option(i);
 		const auto serialized = settings->readPref<QByteArray>(Key(option));
 		auto ok = false;
 		const auto value = serialized.toInt(&ok);
 		options[i] = ok ? value : DefaultValue(option);
+		if (option == Option::BubbleRadius) {
+			bubbleRadiusSet = ok;
+		}
+	}
+
+	auto &loaded = Loaded();
+	if (!loaded.loaded) {
+		loaded.loaded = true;
+		for (auto i = 0; i != kModsCount; ++i) {
+			loaded.mods[i] = values[i].current();
+		}
+		for (auto i = 0; i != kOptionsCount; ++i) {
+			loaded.options[i] = options[i].current();
+		}
+
+		// Read once by the chat style, before any bubble is painted.
+		// Without the option the radius is chosen as in Telegram.
+		const auto app = QCoreApplication::instance();
+		if (app && bubbleRadiusSet) {
+			app->setProperty(
+				kBubbleRadiusProperty,
+				options[int(Option::BubbleRadius)].current());
+		}
 	}
 
 }
@@ -275,6 +321,20 @@ int OptionNow(Option option) {
 
 rpl::producer<int> OptionValue(Option option) {
 	return OptionValues()[int(option)].value();
+}
+
+bool LoadedValue(Mod mod) {
+	const auto &loaded = Loaded();
+	return loaded.loaded
+		? loaded.mods[int(mod)]
+		: Values()[int(mod)].current();
+}
+
+int LoadedOption(Option option) {
+	const auto &loaded = Loaded();
+	return loaded.loaded
+		? loaded.options[int(option)]
+		: OptionValues()[int(option)].current();
 }
 
 void SetOption(Option option, int value) {

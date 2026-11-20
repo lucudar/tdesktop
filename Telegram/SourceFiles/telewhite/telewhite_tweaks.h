@@ -66,4 +66,8 @@ struct StoryRingColor {
 
 void SetupStoryRings(rpl::lifetime &lifetime);
 
+// "Compact chats list": lower rows with smaller userpics. Called once
+// right after the styles are made, before any chats list is created.
+void ApplyStyleTweaks();
+
 } // namespace Telewhite

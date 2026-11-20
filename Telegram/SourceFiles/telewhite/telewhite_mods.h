@@ -71,6 +71,7 @@ enum class Mod {
 	GlassUi,
 	UnlimitedSearch,
 	MentionDeletedReply,
+	CompactChats, // Applied after a restart.
 
 	kCount,
 };
@@ -87,6 +88,7 @@ enum class Option {
 	FakeCity, // Index in the cities list, -1 - custom point.
 	TranslateSendTo, // Index in SendLanguageNames().
 	GhostVisibleStatuses, // Bits of GhostStatus left visible to others.
+	BubbleRadius, // Pixels at 100% scale, 2 - 24, applied after a restart.
 
 	kCount,
 };
@@ -138,6 +140,11 @@ void SetEnabled(Mod mod, bool enabled);
 [[nodiscard]] int OptionNow(Option option);
 [[nodiscard]] rpl::producer<int> OptionValue(Option option);
 void SetOption(Option option, int value);
+
+// The values Telewhite was started with: the mods that are applied
+// after a restart (compact chats, bubble rounding) compare with them.
+[[nodiscard]] bool LoadedValue(Mod mod);
+[[nodiscard]] int LoadedOption(Option option);
 
 [[nodiscard]] TimeId AutoClearSeconds(AutoClearPeriod period);
 
