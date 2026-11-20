@@ -45,6 +45,10 @@ namespace Calls {
 struct StartOutgoingCallArgs;
 } // namespace Calls
 
+namespace Telewhite {
+struct GlassBackdropCache;
+} // namespace Telewhite
+
 namespace HistoryView {
 
 class SendActionPainter;
@@ -188,6 +192,7 @@ private:
 	void connectingAnimationCallback();
 
 	void paintTopBar(Painter &p);
+	[[nodiscard]] bool paintGlassBackground(Painter &p, QRect bar);
 	[[nodiscard]] PeerData *titleNamePeer() const;
 	void paintStatus(
 		Painter &p,
@@ -286,6 +291,7 @@ private:
 	rpl::event_stream<> _cancelChooseForReport;
 
 	rpl::lifetime _backLifetime;
+	std::unique_ptr<Telewhite::GlassBackdropCache> _glass;
 
 };
 
