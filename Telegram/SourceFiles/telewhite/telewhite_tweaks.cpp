@@ -27,9 +27,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/effects/outline_segments.h"
 #include "ui/painter.h"
 #include "ui/rp_widget.h"
+#include "ui/widgets/fields/input_field.h"
 #include "ui/style/style_core_scale.h"
 #include "styles/style_chat.h"
 #include "styles/style_dialogs.h"
+
+#ifdef Q_OS_WIN
+#include "base/platform/win/base_windows_h.h"
+#endif // Q_OS_WIN
 
 namespace Telewhite {
 namespace {
@@ -565,6 +570,142 @@ QPainterPath GlassRowClip(QRect geometry) {
 		result.addRoundedRect(QRectF(GlassRowPill(geometry)), radius, radius);
 	}
 	return result;
+}
+
+namespace {
+
+// A section of the glass profile: a rounded card with a thin rim, the
+// content is inset so the rounded corners stay visible around it.
+constexpr auto kCardMargin = 12;
+constexpr auto kCardInset = 4;
+constexpr auto kCardRadius = 12;
+
+class ProfileCard final : public Ui::RpWidget {
+public:
+	ProfileCard(QWidget *parent, object_ptr<Ui::RpWidget> content);
+
+protected:
+	int resizeGetHeight(int newWidth) override;
+	void paintEvent(QPaintEvent *e) override;
+
+private:
+	const object_ptr<Ui::RpWidget> _content;
+
+};
+
+ProfileCard::ProfileCard(QWidget *parent, object_ptr<Ui::RpWidget> content)
+: RpWidget(parent)
+, _content(std::move(content)) {
+	_content->setParent(this);
+	_content->show();
+	_content->heightValue(
+	) | rpl::skip(1) | rpl::on_next([=] {
+		resizeToWidth(width());
+	}, lifetime());
+}
+
+int ProfileCard::resizeGetHeight(int newWidth) {
+	const auto margin = style::ConvertScale(kCardMargin);
+	const auto inset = style::ConvertScale(kCardInset);
+	const auto inner = std::max(newWidth - 2 * (margin + inset), 1);
+	_content->resizeToWidth(inner);
+	_content->moveToLeft(margin + inset, inset, newWidth);
+	const auto height = _content->height();
+	return (height > 0) ? (height + 2 * inset) : 0;
+}
+
+void ProfileCard::paintEvent(QPaintEvent *) {
+	if (_content->height() <= 0) {
+		return;
+	}
+	auto p = QPainter(this);
+	auto hq = PainterHighQualityEnabler(p);
+	const auto margin = style::ConvertScale(kCardMargin);
+	const auto radius = float64(style::ConvertScale(kCardRadius));
+	const auto card = QRectF(rect().marginsRemoved({ margin, 0, margin, 0 }));
+	const auto bg = st::windowBg->c;
+	const auto dark = (bg.lightnessF() < 0.5);
+	p.setPen(Qt::NoPen);
+	p.setBrush(bg);
+	p.drawRoundedRect(card, radius, radius);
+	auto shine = QLinearGradient(card.topLeft(), card.bottomLeft());
+	shine.setColorAt(0., QColor(255, 255, 255, dark ? 14 : 40));
+	shine.setColorAt(0.35, QColor(255, 255, 255, 0));
+	shine.setColorAt(1., QColor(255, 255, 255, 0));
+	p.setBrush(QBrush(shine));
+	p.drawRoundedRect(card, radius, radius);
+	const auto line = style::ConvertScaleExact(1.);
+	const auto half = line / 2.;
+	p.setBrush(Qt::NoBrush);
+	p.setPen(QPen(dark ? QColor(255, 255, 255, 20) : QColor(0, 0, 0, 16), line));
+	p.drawRoundedRect(
+		card.marginsRemoved(QMarginsF(half, half, half, half)),
+		radius - half,
+		radius - half);
+}
+
+} // namespace
+
+bool StartDictation(not_null<Ui::InputField*> field, bool voice) {
+	if (!voice || !Enabled(Mod::Dictation)) {
+		return false;
+	}
+#ifdef Q_OS_WIN
+	field->setFocusFast();
+	// Windows voice typing writes to the focused field, Win+H opens it.
+	crl::on_main(field.get(), [] {
+		auto inputs = std::array<INPUT, 4>();
+		for (auto &input : inputs) {
+			input.type = INPUT_KEYBOARD;
+		}
+		inputs[0].ki.wVk = VK_LWIN;
+		inputs[1].ki.wVk = WORD('H');
+		inputs[2].ki.wVk = WORD('H');
+		inputs[2].ki.dwFlags = KEYEVENTF_KEYUP;
+		inputs[3].ki.wVk = VK_LWIN;
+		inputs[3].ki.dwFlags = KEYEVENTF_KEYUP;
+		SendInput(UINT(inputs.size()), inputs.data(), int(sizeof(INPUT)));
+	});
+	return true;
+#else // Q_OS_WIN
+	return false;
+#endif // Q_OS_WIN
+}
+
+bool GlassProfileShown() {
+	return Enabled(Mod::GlassUi) && Enabled(Mod::GlassProfile);
+}
+
+object_ptr<Ui::RpWidget> WrapProfileCard(
+		not_null<QWidget*> parent,
+		object_ptr<Ui::RpWidget> content) {
+	return object_ptr<ProfileCard>(parent.get(), std::move(content));
+}
+
+void PaintGlassButtonShine(QPainter &p, QRect rect, int radius) {
+	if (!GlassProfileShown() || rect.isEmpty()) {
+		return;
+	}
+	p.save();
+	auto hq = PainterHighQualityEnabler(p);
+	const auto shape = QRectF(rect);
+	const auto rounding = float64(radius);
+	auto shine = QLinearGradient(shape.topLeft(), shape.bottomLeft());
+	shine.setColorAt(0., QColor(255, 255, 255, 56));
+	shine.setColorAt(0.5, QColor(255, 255, 255, 0));
+	shine.setColorAt(1., QColor(255, 255, 255, 0));
+	p.setPen(Qt::NoPen);
+	p.setBrush(QBrush(shine));
+	p.drawRoundedRect(shape, rounding, rounding);
+	const auto line = style::ConvertScaleExact(1.);
+	const auto half = line / 2.;
+	p.setBrush(Qt::NoBrush);
+	p.setPen(QPen(QColor(255, 255, 255, 60), line));
+	p.drawRoundedRect(
+		shape.marginsRemoved(QMarginsF(half, half, half, half)),
+		rounding - half,
+		rounding - half);
+	p.restore();
 }
 
 } // namespace Telewhite

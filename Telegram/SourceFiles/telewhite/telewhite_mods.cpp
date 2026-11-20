@@ -86,6 +86,8 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::HideBlocked: return "telewhite-hide-blocked";
 	case Mod::DeleteJoined: return "telewhite-delete-joined";
 	case Mod::GlassChats: return "telewhite-glass-chats";
+	case Mod::GlassProfile: return "telewhite-glass-profile";
+	case Mod::Dictation: return "telewhite-dictation";
 	case Mod::kCount: break;
 	}
 	Unexpected("Mod in Telewhite::Key.");
@@ -104,6 +106,7 @@ constexpr auto kModsCount = int(Mod::kCount);
 	case Mod::GhostReadOnReply:
 	case Mod::GlassUi:
 	case Mod::GlassChats:
+	case Mod::GlassProfile:
 	case Mod::UnlimitedSearch:
 	case Mod::MentionDeletedReply: return true;
 	default: return false;
@@ -294,6 +297,7 @@ bool CountedInBanner(Mod mod) {
 	}
 	switch (mod) {
 	case Mod::StreamerMode:
+	case Mod::Dictation:
 	case Mod::NowPlaying:
 		// Streamer mode and players are supported only on Windows.
 		return Platform::IsWindows();
@@ -316,6 +320,7 @@ bool CountedInBanner(Mod mod) {
 	case Mod::GhostReadOnReply:
 	case Mod::MentionDeletedReply:
 	case Mod::GlassChats:
+	case Mod::GlassProfile:
 	case Mod::GlassUi: return false;
 	default: return true;
 	}
