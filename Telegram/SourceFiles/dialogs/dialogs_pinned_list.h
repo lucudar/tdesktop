@@ -32,6 +32,10 @@ public:
 	// if (pinned) places on the first place in the list.
 	void setPinned(Key key, bool pinned);
 
+	// Telewhite: places on the given place, does nothing if already
+	// pinned or the list is full.
+	void addPinnedAt(Key key, int position);
+
 	void clear();
 
 	void applyList(

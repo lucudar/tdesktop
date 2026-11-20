@@ -16,12 +16,21 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/serialize_common.h"
 #include "storage/serialize_peer.h"
 #include "storage/storage_account.h"
+#include "telewhite/telewhite_mods.h"
 
 namespace Data {
 namespace {
 
 constexpr auto kLimit = 48;
+constexpr auto kTelewhiteLimit = 1000;
 constexpr auto kMaxRememberedOpenChats = 32;
+
+// Telewhite: "Unlimited search history" keeps far more recent chats.
+[[nodiscard]] int TelewhiteSavedRecentLimit() {
+	return Telewhite::Enabled(Telewhite::Mod::UnlimitedSearch)
+		? kTelewhiteLimit
+		: kLimit;
+}
 
 } // namespace
 
@@ -83,7 +92,9 @@ QByteArray RecentPeers::serialize() const {
 		return {};
 	}
 	auto size = 2 * sizeof(quint32); // AppVersion, count
-	const auto count = std::min(int(_list.size()), kLimit);
+	const auto count = std::min(
+		int(_list.size()),
+		TelewhiteSavedRecentLimit());
 	auto &&list = _list | ranges::views::take(count);
 	for (const auto &peer : list) {
 		size += Serialize::peerSize(peer);

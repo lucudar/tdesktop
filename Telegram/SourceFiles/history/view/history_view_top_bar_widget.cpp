@@ -66,6 +66,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "support/support_helper.h"
 #include "apiwrap.h"
 #include "api/api_chat_participants.h"
+#include "telewhite/telewhite_glass_backdrop.h"
+#include "telewhite/telewhite_mods.h"
 #include "styles/style_window.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_chat.h"
@@ -536,11 +538,33 @@ void TopBarWidget::paintEvent(QPaintEvent *e) {
 		: -st::topBarHeight;
 	const auto slidingTop = std::max(selectedButtonsTop, searchFieldTop);
 
-	p.fillRect(QRect(0, 0, width(), st::topBarHeight), st::topBarBg);
+	const auto bar = QRect(0, 0, width(), st::topBarHeight);
+	if (!paintGlassBackground(p, bar)) {
+		p.fillRect(bar, st::topBarBg);
+	}
 	if (slidingTop < 0) {
 		p.translate(0, slidingTop + st::topBarHeight);
 		paintTopBar(p);
 	}
+}
+
+bool TopBarWidget::paintGlassBackground(Painter &p, QRect bar) {
+	if (!Telewhite::Enabled(Telewhite::Mod::GlassUi)
+		|| !_activeChat.key
+		|| (_activeChat.section == Section::ChatsList)) {
+		return false;
+	}
+	if (!_glass) {
+		_glass = std::make_unique<Telewhite::GlassBackdropCache>();
+	}
+	Telewhite::InstallGlassBackdrop();
+	return Telewhite::PaintGlassBar(
+		p,
+		this,
+		bar,
+		*_glass,
+		st::topBarBg->c,
+		true);
 }
 
 void TopBarWidget::paintTopBar(Painter &p) {
