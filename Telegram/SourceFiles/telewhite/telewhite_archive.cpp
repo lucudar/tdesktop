@@ -22,13 +22,18 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_peer_id.h"
 #include "data/data_photo.h"
 #include "data/data_photo_media.h"
+#include "data/data_session.h"
+#include "data/data_user.h"
 #include "history/history.h"
 #include "history/history_item.h"
+#include "history/history_item_components.h"
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "platform/platform_file_utilities.h"
 #include "settings.h"
 #include "storage/storage_account.h"
+#include "telewhite/telewhite_edit_history.h"
+#include "telewhite/telewhite_long_press.h"
 #include "telewhite/telewhite_mods.h"
 #include "ui/abstract_button.h"
 #include "ui/boxes/confirm_box.h"
@@ -37,6 +42,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/layers/generic_box.h"
 #include "ui/text/format_values.h"
 #include "ui/vertical_list.h"
+#include "ui/widgets/discrete_sliders.h"
+#include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/labels.h"
 #include "ui/widgets/menu/menu_add_action_callback.h"
 #include "ui/wrap/vertical_layout.h"
@@ -44,6 +51,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_boxes.h"
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
+#include "styles/style_widgets.h"
 
 #include <QtCore/QBuffer>
 #include <QtCore/QDataStream>
@@ -60,8 +68,9 @@ constexpr auto kArchiveVersion = quint32(1);
 constexpr auto kMaxDeleted = 5000;
 constexpr auto kMaxEdited = 3000;
 constexpr auto kMaxVersions = 50;
-constexpr auto kMaxShownDeleted = 300;
 constexpr auto kMaxPreviews = 50;
+constexpr auto kJournalPage = 50;
+constexpr auto kSearchDelay = crl::time(250);
 constexpr auto kSaveDelay = crl::time(3000);
 constexpr auto kMaxFileSize = int64(20 * 1024 * 1024);
 constexpr auto kMaxFilesSize = int64(1024 * 1024 * 1024);
@@ -80,6 +89,28 @@ struct PendingFile {
 	crl::time started = 0;
 	bool saving = false;
 };
+
+struct DeletedEntry {
+	PeerId peerId = 0;
+	DeletedMessage message;
+};
+
+// Previous versions of an edited message (the oldest first), who edited
+// it, when, and its text after the last edit.
+struct EditedEntry {
+	std::vector<EditVersion> versions;
+	PeerId fromId = 0;
+	QString fromName;
+	TimeId editedAt = 0;
+	TextWithEntities current;
+};
+
+[[nodiscard]] TimeId EditedDate(const EditedEntry &entry) {
+	if (entry.editedAt) {
+		return entry.editedAt;
+	}
+	return entry.versions.empty() ? TimeId(0) : entry.versions.back().date;
+}
 
 void WriteText(QDataStream &stream, const TextWithEntities &text) {
 	stream
@@ -182,11 +213,29 @@ public:
 	void rememberFile(not_null<HistoryItem*> item);
 	[[nodiscard]] bool hasDeleted(PeerId peerId);
 	[[nodiscard]] std::vector<DeletedMessage> deleted(PeerId peerId);
+	[[nodiscard]] const std::deque<DeletedEntry> &deletedList();
+
+	// An empty peerId means all chats in these.
+	[[nodiscard]] int countDeleted(PeerId peerId);
 	void clearDeleted(PeerId peerId);
+
 	void forgetDeleted(PeerId peerId, MsgId msgId);
 
-	void rememberEditVersion(FullMsgId id, EditVersion version);
+	void rememberEditVersion(
+		FullMsgId id,
+		EditVersion version,
+		EditedEntry info);
 	[[nodiscard]] std::vector<EditVersion> editVersions(FullMsgId id);
+	[[nodiscard]] auto editedList()
+		-> const base::flat_map<FullMsgId, EditedEntry> &;
+
+	// An empty peerId means all chats in these.
+	[[nodiscard]] int countEdited(PeerId peerId);
+	void clearEdited(PeerId peerId);
+
+	void forgetEdited(FullMsgId id);
+
+	[[nodiscard]] rpl::producer<> changes() const;
 
 	// Removes everything older than the "auto-clear" period.
 	void prune();
@@ -194,15 +243,11 @@ public:
 	void flush();
 
 private:
-	struct DeletedEntry {
-		PeerId peerId = 0;
-		DeletedMessage message;
-	};
-
 	void load();
 	void cleanFiles();
 	void changed();
 	void save(bool sync);
+	void refreshEdited(FullMsgId id);
 	[[nodiscard]] QByteArray serialize() const;
 	[[nodiscard]] bool deserialize(const QByteArray &serialized);
 
@@ -220,8 +265,9 @@ private:
 	base::Timer _saveTimer;
 	base::Timer _pendingTimer;
 	std::deque<DeletedEntry> _deleted;
-	base::flat_map<FullMsgId, std::vector<EditVersion>> _edits;
+	base::flat_map<FullMsgId, EditedEntry> _edits;
 	std::vector<PendingFile> _pending;
+	rpl::event_stream<> _changes;
 	bool _loaded = false;
 	bool _dirty = false;
 
@@ -271,7 +317,7 @@ void Archive::prune() {
 	}), end(_deleted));
 	const auto wasEdits = _edits.size();
 	for (auto i = begin(_edits); i != end(_edits);) {
-		if (i->second.empty() || i->second.back().date < border) {
+		if (i->second.versions.empty() || EditedDate(i->second) < border) {
 			i = _edits.erase(i);
 		} else {
 			++i;
@@ -304,6 +350,11 @@ void Archive::changed() {
 	if (!_saveTimer.isActive()) {
 		_saveTimer.callOnce(kSaveDelay);
 	}
+	_changes.fire({});
+}
+
+rpl::producer<> Archive::changes() const {
+	return _changes.events();
 }
 
 void Archive::save(bool sync) {
@@ -554,18 +605,39 @@ std::vector<DeletedMessage> Archive::deleted(PeerId peerId) {
 	return result;
 }
 
+const std::deque<DeletedEntry> &Archive::deletedList() {
+	load();
+	return _deleted;
+}
+
+int Archive::countDeleted(PeerId peerId) {
+	load();
+	if (peerId == PeerId()) {
+		return int(_deleted.size());
+	}
+	auto result = 0;
+	for (const auto &entry : _deleted) {
+		if (entry.peerId == peerId) {
+			++result;
+		}
+	}
+	return result;
+}
+
 void Archive::clearDeleted(PeerId peerId) {
 	load();
+	const auto all = (peerId == PeerId());
 	auto removed = std::vector<QString>();
 	for (const auto &entry : _deleted) {
-		if (entry.peerId == peerId && !entry.message.file.key.isEmpty()) {
+		if ((all || entry.peerId == peerId)
+			&& !entry.message.file.key.isEmpty()) {
 			removed.push_back(entry.message.file.key);
 		}
 	}
 	const auto was = _deleted.size();
-	_deleted.erase(
-		ranges::remove(_deleted, peerId, &DeletedEntry::peerId),
-		end(_deleted));
+	_deleted.erase(ranges::remove_if(_deleted, [&](const DeletedEntry &e) {
+		return all || (e.peerId == peerId);
+	}), end(_deleted));
 	removeFiles(std::move(removed));
 	if (_deleted.size() != was) {
 		changed();
@@ -590,19 +662,26 @@ void Archive::forgetDeleted(PeerId peerId, MsgId msgId) {
 	}
 }
 
-void Archive::rememberEditVersion(FullMsgId id, EditVersion version) {
+void Archive::rememberEditVersion(
+		FullMsgId id,
+		EditVersion version,
+		EditedEntry info) {
 	load();
-	auto &list = _edits[id];
-	list.push_back(std::move(version));
-	if (int(list.size()) > kMaxVersions) {
-		list.erase(begin(list));
+	auto &entry = _edits[id];
+	entry.versions.push_back(std::move(version));
+	if (int(entry.versions.size()) > kMaxVersions) {
+		entry.versions.erase(begin(entry.versions));
 	}
+	entry.fromId = info.fromId;
+	entry.fromName = std::move(info.fromName);
+	entry.editedAt = info.editedAt;
+	entry.current = std::move(info.current);
 	if (int(_edits.size()) > kMaxEdited) {
 		auto oldest = end(_edits);
 		for (auto i = begin(_edits); i != end(_edits); ++i) {
 			if (i->first != id
 				&& (oldest == end(_edits)
-					|| i->second.back().date < oldest->second.back().date)) {
+					|| EditedDate(i->second) < EditedDate(oldest->second))) {
 				oldest = i;
 			}
 		}
@@ -616,7 +695,68 @@ void Archive::rememberEditVersion(FullMsgId id, EditVersion version) {
 std::vector<EditVersion> Archive::editVersions(FullMsgId id) {
 	load();
 	const auto i = _edits.find(id);
-	return (i != end(_edits)) ? i->second : std::vector<EditVersion>();
+	return (i != end(_edits))
+		? i->second.versions
+		: std::vector<EditVersion>();
+}
+
+auto Archive::editedList()
+-> const base::flat_map<FullMsgId, EditedEntry> & {
+	load();
+	return _edits;
+}
+
+int Archive::countEdited(PeerId peerId) {
+	load();
+	if (peerId == PeerId()) {
+		return int(_edits.size());
+	}
+	auto result = 0;
+	for (const auto &pair : _edits) {
+		if (pair.first.peer == peerId) {
+			++result;
+		}
+	}
+	return result;
+}
+
+void Archive::refreshEdited(FullMsgId id) {
+	// The previous versions may be shown right under the message text.
+	if (const auto item = _session->data().message(id)) {
+		_session->data().requestItemTextRefresh(item);
+	}
+}
+
+void Archive::clearEdited(PeerId peerId) {
+	load();
+	const auto all = (peerId == PeerId());
+	auto removed = std::vector<FullMsgId>();
+	for (auto i = begin(_edits); i != end(_edits);) {
+		if (all || i->first.peer == peerId) {
+			removed.push_back(i->first);
+			i = _edits.erase(i);
+		} else {
+			++i;
+		}
+	}
+	if (removed.empty()) {
+		return;
+	}
+	for (const auto &id : removed) {
+		refreshEdited(id);
+	}
+	changed();
+}
+
+void Archive::forgetEdited(FullMsgId id) {
+	load();
+	const auto i = _edits.find(id);
+	if (i == end(_edits)) {
+		return;
+	}
+	_edits.erase(i);
+	refreshEdited(id);
+	changed();
 }
 
 QByteArray Archive::serialize() const {
@@ -639,12 +779,12 @@ QByteArray Archive::serialize() const {
 		stream << message.media;
 	}
 	stream << quint32(_edits.size());
-	for (const auto &[id, versions] : _edits) {
+	for (const auto &[id, entry] : _edits) {
 		stream
 			<< SerializePeerId(id.peer)
 			<< qint64(id.msg.bare)
-			<< quint32(versions.size());
-		for (const auto &version : versions) {
+			<< quint32(entry.versions.size());
+		for (const auto &version : entry.versions) {
 			stream << qint32(version.date);
 			WriteText(stream, version.text);
 		}
@@ -663,6 +803,25 @@ QByteArray Archive::serialize() const {
 				<< qint64(file.size)
 				<< qint32(file.photo ? 1 : 0);
 		}
+	}
+
+	// Who edited and when, with the text after the edit. It goes after
+	// everything else: older Telewhite builds read the archive as before.
+	const auto described = ranges::count_if(_edits, [](const auto &pair) {
+		return (pair.second.editedAt != 0);
+	});
+	stream << quint32(described);
+	for (const auto &[id, entry] : _edits) {
+		if (!entry.editedAt) {
+			continue;
+		}
+		stream
+			<< SerializePeerId(id.peer)
+			<< qint64(id.msg.bare)
+			<< SerializePeerId(entry.fromId)
+			<< entry.fromName
+			<< qint32(entry.editedAt);
+		WriteText(stream, entry.current);
 	}
 	return result;
 }
@@ -738,7 +897,7 @@ bool Archive::deserialize(const QByteArray &serialized) {
 		}
 		_edits.emplace(
 			FullMsgId(DeserializePeerId(peerId), MsgId(msgId)),
-			std::move(versions));
+			EditedEntry{ .versions = std::move(versions) });
 	}
 	if (stream.atEnd()) {
 		return true;
@@ -760,6 +919,37 @@ bool Archive::deserialize(const QByteArray &serialized) {
 		file.size = size;
 		file.photo = (photo == 1);
 		_deleted[index].message.file = std::move(file);
+	}
+	if (stream.atEnd()) {
+		return true;
+	}
+
+	// Who edited and when. A broken tail doesn't drop what was read above.
+	auto describedCount = quint32();
+	stream >> describedCount;
+	if (stream.status() != QDataStream::Ok
+		|| describedCount > quint32(kMaxEdited)) {
+		return true;
+	}
+	for (auto i = quint32(); i != describedCount; ++i) {
+		auto peerId = quint64();
+		auto msgId = qint64();
+		auto fromId = quint64();
+		auto fromName = QString();
+		auto editedAt = qint32();
+		stream >> peerId >> msgId >> fromId >> fromName >> editedAt;
+		auto current = ReadText(stream);
+		if (stream.status() != QDataStream::Ok) {
+			break;
+		}
+		const auto j = _edits.find(
+			FullMsgId(DeserializePeerId(peerId), MsgId(msgId)));
+		if (j != end(_edits)) {
+			j->second.fromId = DeserializePeerId(fromId);
+			j->second.fromName = std::move(fromName);
+			j->second.editedAt = TimeId(editedAt);
+			j->second.current = std::move(current);
+		}
 	}
 	return true;
 }
@@ -923,68 +1113,580 @@ void AddFileActions(
 	label->setLink(2, std::make_shared<LambdaClickHandler>(save));
 }
 
-void DeletedMessagesBox(
-		not_null<Ui::GenericBox*> box,
-		std::shared_ptr<Ui::Show> show,
-		not_null<PeerData*> peer) {
-	box->setTitle(tr::lng_telewhite_deleted_title());
-	box->setWidth(st::boxWideWidth);
+enum class JournalKind {
+	Deleted,
+	Edited,
+};
 
-	const auto container = box->verticalLayout();
-	const auto session = &peer->session();
-	const auto list = Deleted(peer);
-	const auto count = int(list.size());
-	const auto from = std::max(count - kMaxShownDeleted, 0);
-	auto previews = 0;
-	for (auto i = count; i != from;) {
-		const auto &message = list[--i];
-		Ui::AddSubsectionTitle(
-			container,
-			tr::lng_telewhite_deleted_entry(
-				lt_name,
-				rpl::single(message.fromName),
-				lt_date,
-				rpl::single(FormatExactDateTime(message.date))));
-		auto text = TextWithEntities();
-		if (!message.media.isEmpty()) {
-			text.append(u"["_q + message.media + u"]"_q);
-			if (!message.text.text.isEmpty()) {
-				text.append(u"\n"_q);
+enum class JournalType {
+	All,
+	Personal,
+	Groups,
+	Channels,
+	Bots,
+};
+
+struct JournalState {
+	JournalType type = JournalType::All;
+	QString query;
+	int limit = kJournalPage;
+	base::Timer searchTimer;
+};
+
+struct JournalFill {
+	int shown = 0;
+	int total = 0;
+};
+
+struct EntryAction {
+	QString text;
+	Fn<void()> callback;
+};
+
+[[nodiscard]] std::vector<QString> JournalTypeNames() {
+	return {
+		u"Все"_q,
+		u"Личные"_q,
+		u"Группы"_q,
+		u"Каналы"_q,
+		u"Боты"_q,
+	};
+}
+
+[[nodiscard]] JournalType JournalTypeOf(
+		not_null<Main::Session*> session,
+		PeerId peerId) {
+	if (const auto peer = session->data().peerLoaded(peerId)) {
+		if (const auto user = peer->asUser()) {
+			return user->isBot()
+				? JournalType::Bots
+				: JournalType::Personal;
+		} else if (peer->isChannel() && !peer->isMegagroup()) {
+			return JournalType::Channels;
+		}
+		return JournalType::Groups;
+	} else if (peerIsUser(peerId)) {
+		return JournalType::Personal;
+	} else if (peerIsChannel(peerId)) {
+		return JournalType::Channels;
+	}
+	return JournalType::Groups;
+}
+
+[[nodiscard]] QString ChatName(
+		not_null<Main::Session*> session,
+		PeerId peerId) {
+	if (const auto peer = session->data().peerLoaded(peerId)) {
+		if (peer->isSelf()) {
+			return tr::lng_saved_messages(tr::now);
+		} else if (const auto name = peer->name(); !name.isEmpty()) {
+			return name;
+		}
+	}
+	return u"Чат"_q;
+}
+
+// "Chat · Author", the name is not repeated in a personal chat.
+[[nodiscard]] QString EntryTitle(
+		not_null<Main::Session*> session,
+		PeerId peerId,
+		const QString &author,
+		bool withChat) {
+	auto result = withChat ? ChatName(session, peerId) : QString();
+	if (!author.isEmpty() && author != result) {
+		if (!result.isEmpty()) {
+			result += u" · "_q;
+		}
+		result += author;
+	}
+	return result.isEmpty() ? ChatName(session, peerId) : result;
+}
+
+[[nodiscard]] QString ShortDateTime(TimeId date) {
+	return base::unixtime::parse(date).toString(u"dd.MM.yy HH:mm"_q);
+}
+
+[[nodiscard]] bool MatchesQuery(const QString &text, const QString &query) {
+	return text.contains(query, Qt::CaseInsensitive);
+}
+
+[[nodiscard]] TextWithEntities DeletedText(const DeletedMessage &message) {
+	auto result = TextWithEntities();
+	if (!message.media.isEmpty()) {
+		result.append(u"["_q + message.media + u"]"_q);
+		if (!message.text.text.isEmpty()) {
+			result.append(u"\n"_q);
+		}
+	}
+	result.append(message.text);
+	return result;
+}
+
+[[nodiscard]] bool DeletedMatches(
+		not_null<Main::Session*> session,
+		const DeletedEntry &entry,
+		const QString &query,
+		bool withChat) {
+	const auto &message = entry.message;
+	return MatchesQuery(message.text.text, query)
+		|| MatchesQuery(message.media, query)
+		|| MatchesQuery(message.fromName, query)
+		|| (withChat
+			&& MatchesQuery(ChatName(session, entry.peerId), query));
+}
+
+[[nodiscard]] bool EditedMatches(
+		not_null<Main::Session*> session,
+		FullMsgId id,
+		const EditedEntry &entry,
+		const QString &query,
+		bool withChat) {
+	if (MatchesQuery(entry.current.text, query)
+		|| MatchesQuery(entry.fromName, query)
+		|| (withChat && MatchesQuery(ChatName(session, id.peer), query))) {
+		return true;
+	} else if (const auto item = session->data().message(id)) {
+		if (MatchesQuery(item->originalText().text, query)) {
+			return true;
+		}
+	}
+	return ranges::any_of(entry.versions, [&](const EditVersion &version) {
+		return MatchesQuery(version.text.text, query);
+	});
+}
+
+void AddEntryText(
+		not_null<Ui::VerticalLayout*> list,
+		TextWithEntities text,
+		TextWithEntities copy,
+		std::shared_ptr<Ui::Show> show,
+		bool pale) {
+	const auto label = list->add(
+		object_ptr<Ui::FlatLabel>(
+			list,
+			rpl::single(std::move(text)),
+			st::boxLabel),
+		st::boxRowPadding);
+	label->setSelectable(true);
+	if (pale) {
+		label->setTextColorOverride(
+			std::make_optional(st::windowSubTextFg->c));
+	}
+	if (!copy.text.isEmpty()) {
+		OnLongPress(label, [=] {
+			CopyWithFormatting(show, copy);
+		});
+	}
+}
+
+void AddEntryActions(
+		not_null<Ui::VerticalLayout*> list,
+		std::vector<EntryAction> actions,
+		const QString &about) {
+	auto text = TextWithEntities();
+	for (auto i = 0; i != int(actions.size()); ++i) {
+		if (i) {
+			text.append(u" · "_q);
+		}
+		text.append(tr::link(actions[i].text, i + 1));
+	}
+	if (!about.isEmpty()) {
+		text.append(u" · "_q + about);
+	}
+	const auto label = list->add(
+		object_ptr<Ui::FlatLabel>(
+			list,
+			rpl::single(std::move(text)),
+			st::boxLabel),
+		st::boxRowPadding);
+	for (auto i = 0; i != int(actions.size()); ++i) {
+		label->setLink(
+			uint16(i + 1),
+			std::make_shared<LambdaClickHandler>(actions[i].callback));
+	}
+}
+
+void OpenInChat(
+		not_null<Window::SessionController*> controller,
+		not_null<Ui::GenericBox*> box,
+		PeerId peerId,
+		MsgId msgId) {
+	const auto weak = base::make_weak(box);
+	controller->showPeerHistory(
+		peerId,
+		Window::SectionShow::Way::ClearStack,
+		msgId);
+	if (const auto strong = weak.get()) {
+		strong->closeBox();
+	}
+}
+
+void AddDeletedEntry(
+		not_null<Ui::VerticalLayout*> list,
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller,
+		const DeletedEntry &entry,
+		bool withChat,
+		bool preview,
+		Fn<void()> refresh) {
+	const auto session = &controller->session();
+	const auto show = box->uiShow();
+	const auto &message = entry.message;
+	const auto peerId = entry.peerId;
+	const auto msgId = message.msgId;
+	Ui::AddSubsectionTitle(
+		list,
+		rpl::single(
+			EntryTitle(session, peerId, message.fromName, withChat)
+			+ u", "_q
+			+ ShortDateTime(message.date)));
+	auto text = DeletedText(message);
+	if (text.text.isEmpty()) {
+		text.append(tr::lng_telewhite_edit_history_empty(tr::now));
+	}
+	AddEntryText(list, std::move(text), message.text, show, false);
+	if (!message.file.key.isEmpty()) {
+		AddFileActions(list, show, session, message.file, preview);
+	}
+	AddEntryActions(list, {
+		{
+			.text = u"Открыть в чате"_q,
+			.callback = [=] {
+				OpenInChat(controller, box, peerId, msgId);
+			},
+		},
+		{
+			.text = u"Убрать"_q,
+			.callback = [=] {
+				ArchiveFor(session)->forgetDeleted(peerId, msgId);
+				refresh();
+			},
+		},
+	}, u"удалено "_q + ShortDateTime(message.deletedAt));
+	Ui::AddSkip(list);
+}
+
+void AddEditedEntry(
+		not_null<Ui::VerticalLayout*> list,
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller,
+		FullMsgId id,
+		const EditedEntry &entry,
+		bool withChat,
+		Fn<void()> refresh) {
+	const auto session = &controller->session();
+	const auto show = box->uiShow();
+	const auto item = session->data().message(id);
+	const auto date = EditedDate(entry);
+	const auto author = (entry.fromName.isEmpty() && item)
+		? item->from()->name()
+		: entry.fromName;
+	Ui::AddSubsectionTitle(
+		list,
+		rpl::single(EntryTitle(session, id.peer, author, withChat)));
+
+	// Archives of older builds don't know the text after the edit.
+	const auto known = (item != nullptr) || (entry.editedAt != 0);
+	const auto current = item ? item->originalText() : entry.current;
+	if (known) {
+		AddEntryText(
+			list,
+			(current.text.isEmpty()
+				? TextWithEntities{
+					tr::lng_telewhite_edit_history_empty(tr::now),
+				}
+				: current),
+			current,
+			show,
+			false);
+	}
+	if (!entry.versions.empty()) {
+		const auto &was = entry.versions.back().text;
+		auto text = TextWithEntities{ u"Было: "_q };
+		text.append(was.text.isEmpty()
+			? TextWithEntities{
+				tr::lng_telewhite_edit_history_empty(tr::now),
 			}
-		}
-		text.append(message.text);
-		if (text.text.isEmpty()) {
-			text.append(tr::lng_telewhite_edit_history_empty(tr::now));
-		}
-		const auto label = container->add(
-			object_ptr<Ui::FlatLabel>(
-				container,
-				rpl::single(std::move(text)),
-				st::boxLabel),
-			st::boxRowPadding);
-		label->setSelectable(true);
-		if (!message.file.key.isEmpty()) {
-			const auto preview = message.file.photo
-				&& (previews < kMaxPreviews);
-			if (preview) {
-				++previews;
-			}
-			AddFileActions(container, show, session, message.file, preview);
-		}
-		Ui::AddSkip(container);
+			: was);
+		AddEntryText(list, std::move(text), was, show, true);
 	}
 
-	const auto weak = base::make_weak(box);
+	auto versions = entry.versions;
+	versions.push_back({
+		.text = (known
+			? current
+			: TextWithEntities{
+				u"Сообщение не загружено, его текст сейчас неизвестен."_q,
+			}),
+		.date = date,
+	});
+	const auto count = int(versions.size());
+	AddEntryActions(list, {
+		{
+			.text = (u"Все версии ("_q
+				+ QString::number(count)
+				+ u")"_q),
+			.callback = [=] {
+				controller->show(Box(EditVersionsBox, versions));
+			},
+		},
+		{
+			.text = u"Открыть в чате"_q,
+			.callback = [=] {
+				OpenInChat(controller, box, id.peer, id.msg);
+			},
+		},
+		{
+			.text = u"Убрать"_q,
+			.callback = [=] {
+				ArchiveFor(session)->forgetEdited(id);
+				refresh();
+			},
+		},
+	}, u"изменено "_q + ShortDateTime(date));
+	Ui::AddSkip(list);
+}
+
+JournalFill FillDeleted(
+		not_null<Ui::VerticalLayout*> list,
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller,
+		PeerData *peer,
+		not_null<const JournalState*> state,
+		Fn<void()> refresh) {
+	const auto session = &controller->session();
+	const auto &all = ArchiveFor(session)->deletedList();
+	auto result = JournalFill();
+	auto previews = 0;
+	for (auto i = int(all.size()); i != 0;) {
+		const auto &entry = all[--i];
+		if (peer) {
+			if (entry.peerId != peer->id) {
+				continue;
+			}
+		} else if (state->type != JournalType::All
+			&& JournalTypeOf(session, entry.peerId) != state->type) {
+			continue;
+		}
+		if (!state->query.isEmpty()
+			&& !DeletedMatches(session, entry, state->query, !peer)) {
+			continue;
+		}
+		++result.total;
+		if (result.shown >= state->limit) {
+			continue;
+		}
+		++result.shown;
+		const auto preview = entry.message.file.photo
+			&& !entry.message.file.key.isEmpty()
+			&& (previews < kMaxPreviews);
+		if (preview) {
+			++previews;
+		}
+		AddDeletedEntry(
+			list,
+			box,
+			controller,
+			entry,
+			!peer,
+			preview,
+			refresh);
+	}
+	return result;
+}
+
+JournalFill FillEdited(
+		not_null<Ui::VerticalLayout*> list,
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller,
+		PeerData *peer,
+		not_null<const JournalState*> state,
+		Fn<void()> refresh) {
+	const auto session = &controller->session();
+	const auto &all = ArchiveFor(session)->editedList();
+	auto matched = std::vector<std::pair<TimeId, FullMsgId>>();
+	for (const auto &[id, entry] : all) {
+		if (peer) {
+			if (id.peer != peer->id) {
+				continue;
+			}
+		} else if (state->type != JournalType::All
+			&& JournalTypeOf(session, id.peer) != state->type) {
+			continue;
+		}
+		if (!state->query.isEmpty()
+			&& !EditedMatches(session, id, entry, state->query, !peer)) {
+			continue;
+		}
+		matched.emplace_back(EditedDate(entry), id);
+	}
+	ranges::sort(matched, [](const auto &a, const auto &b) {
+		return (a.first > b.first);
+	});
+	auto result = JournalFill{ .total = int(matched.size()) };
+	for (const auto &pair : matched) {
+		if (result.shown >= state->limit) {
+			break;
+		}
+		const auto i = all.find(pair.second);
+		if (i == end(all)) {
+			continue;
+		}
+		++result.shown;
+		AddEditedEntry(
+			list,
+			box,
+			controller,
+			pair.second,
+			i->second,
+			!peer,
+			refresh);
+	}
+	return result;
+}
+
+void JournalBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller,
+		JournalKind kind,
+		PeerData *peer) {
+	const auto deleted = (kind == JournalKind::Deleted);
+	const auto session = &controller->session();
+	box->setWidth(st::boxWideWidth);
+	box->setTitle(rpl::single(peer
+		? (deleted
+			? tr::lng_telewhite_deleted_title(tr::now)
+			: u"Изменённые сообщения"_q)
+		: (deleted
+			? u"История удалений"_q
+			: u"История изменений"_q)));
+
+	const auto state = box->lifetime().make_state<JournalState>();
+	const auto content = box->verticalLayout();
+	const auto list = content->add(object_ptr<Ui::VerticalLayout>(content));
+	const auto rebuild = box->lifetime().make_state<Fn<void()>>();
+
+	// Links call it from their own click handlers, so it rebuilds later.
+	const auto refresh = [=] {
+		crl::on_main(box.get(), [=] {
+			(*rebuild)();
+		});
+	};
+	*rebuild = [=] {
+		list->clear();
+		Ui::AddSkip(list);
+		const auto counter = list->add(
+			object_ptr<Ui::FlatLabel>(list, st::boxLabel),
+			st::boxRowPadding);
+		counter->setTextColorOverride(
+			std::make_optional(st::windowSubTextFg->c));
+		Ui::AddSkip(list);
+		const auto result = deleted
+			? FillDeleted(list, box, controller, peer, state, refresh)
+			: FillEdited(list, box, controller, peer, state, refresh);
+		if (!result.total) {
+			counter->setText(!state->query.isEmpty()
+				? u"Ничего не найдено."_q
+				: deleted
+				? u"Пока пусто. Здесь появятся сообщения, которые удалили у вас в чатах, пока Telewhite был открыт."_q
+				: u"Пока пусто. Здесь появятся сообщения, которые отредактировали у вас в чатах, пока Telewhite был открыт."_q);
+		} else if (result.shown < result.total) {
+			counter->setText(u"Найдено: "_q
+				+ QString::number(result.total)
+				+ u", показаны первые "_q
+				+ QString::number(result.shown));
+		} else {
+			counter->setText(
+				u"Найдено: "_q + QString::number(result.total));
+		}
+		if (result.shown < result.total) {
+			const auto more = list->add(
+				object_ptr<Ui::FlatLabel>(
+					list,
+					rpl::single(tr::link(u"Показать ещё"_q, 1)),
+					st::boxLabel),
+				st::boxRowPadding);
+			more->setLink(1, std::make_shared<LambdaClickHandler>([=] {
+				state->limit += kJournalPage;
+				refresh();
+			}));
+			Ui::AddSkip(list);
+		}
+		if (result.shown > 0) {
+			const auto hint = list->add(
+				object_ptr<Ui::FlatLabel>(
+					list,
+					rpl::single(u"Зажмите текст, чтобы скопировать его с форматированием."_q),
+					st::boxLabel),
+				st::boxRowPadding);
+			hint->setTextColorOverride(
+				std::make_optional(st::windowSubTextFg->c));
+			Ui::AddSkip(list);
+		}
+		list->resizeToWidth(content->width());
+	};
+
+	const auto top = box->setPinnedToTopContent(
+		object_ptr<Ui::VerticalLayout>(box));
+	if (!peer) {
+		const auto tabs = top->add(
+			object_ptr<Ui::SettingsSlider>(top, st::defaultTabsSlider));
+		tabs->setSections(JournalTypeNames());
+		tabs->sectionActivated(
+		) | rpl::on_next([=](int index) {
+			state->type = JournalType(index);
+			state->limit = kJournalPage;
+			(*rebuild)();
+		}, tabs->lifetime());
+	}
+	Ui::AddSkip(top);
+	const auto field = top->add(
+		object_ptr<Ui::InputField>(
+			top,
+			st::defaultInputField,
+			tr::lng_dlg_filter(),
+			QString()),
+		st::boxRowPadding);
+	Ui::AddSkip(top);
+	state->searchTimer.setCallback([=] {
+		const auto query = field->getLastText().trimmed();
+		if (state->query != query) {
+			state->query = query;
+			state->limit = kJournalPage;
+			(*rebuild)();
+		}
+	});
+	field->changes(
+	) | rpl::on_next([=] {
+		state->searchTimer.callOnce(kSearchDelay);
+	}, field->lifetime());
+	box->setFocusCallback([=] {
+		field->setFocusFast();
+	});
+
+	(*rebuild)();
+
 	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
-	box->addLeftButton(tr::lng_telewhite_deleted_clear(), [=] {
+	box->addLeftButton(rpl::single(u"Очистить"_q), [=] {
+		const auto text = peer
+			? (deleted
+				? u"Удалённые сообщения этого чата пропадут из журнала. Это нельзя отменить."_q
+				: u"Прежние версии сообщений этого чата будут стёрты. Это нельзя отменить."_q)
+			: (deleted
+				? u"Все удалённые сообщения этого аккаунта пропадут из журнала. Это нельзя отменить."_q
+				: u"Прежние версии всех сообщений этого аккаунта будут стёрты. Это нельзя отменить."_q);
 		box->uiShow()->show(Ui::MakeConfirmBox({
-			.text = tr::lng_telewhite_deleted_clear_sure(),
+			.text = text,
 			.confirmed = [=](Fn<void()> close) {
-				ClearDeleted(peer);
-				close();
-				if (const auto strong = weak.get()) {
-					strong->closeBox();
+				const auto archive = ArchiveFor(session);
+				const auto peerId = peer ? peer->id : PeerId();
+				if (deleted) {
+					archive->clearDeleted(peerId);
+				} else {
+					archive->clearEdited(peerId);
 				}
+				close();
+				refresh();
 			},
 			.confirmText = tr::lng_box_delete(),
 			.confirmStyle = &st::attentionBoxButton,
@@ -1036,23 +1738,83 @@ void PruneArchives() {
 }
 
 void RememberEditVersion(not_null<HistoryItem*> item, EditVersion version) {
-	ArchiveFor(item)->rememberEditVersion(item->fullId(), std::move(version));
+	const auto from = item->from();
+	const auto edited = item->Get<HistoryMessageEdited>();
+	ArchiveFor(item)->rememberEditVersion(
+		item->fullId(),
+		std::move(version),
+		{
+			.fromId = from->id,
+			.fromName = from->name(),
+			.editedAt = edited ? edited->date : base::unixtime::now(),
+			.current = item->originalText(),
+		});
 }
 
 std::vector<EditVersion> EditVersions(not_null<HistoryItem*> item) {
 	return ArchiveFor(item)->editVersions(item->fullId());
 }
 
+rpl::producer<int> DeletedCountValue(not_null<Main::Session*> session) {
+	const auto archive = ArchiveFor(session);
+	const auto weak = base::make_weak(archive.get());
+	return rpl::single(rpl::empty) | rpl::then(
+		archive->changes()
+	) | rpl::map([=] {
+		const auto strong = weak.get();
+		return strong ? strong->countDeleted(PeerId()) : 0;
+	});
+}
+
+rpl::producer<int> EditedCountValue(not_null<Main::Session*> session) {
+	const auto archive = ArchiveFor(session);
+	const auto weak = base::make_weak(archive.get());
+	return rpl::single(rpl::empty) | rpl::then(
+		archive->changes()
+	) | rpl::map([=] {
+		const auto strong = weak.get();
+		return strong ? strong->countEdited(PeerId()) : 0;
+	});
+}
+
+void ShowDeletedJournal(
+		not_null<Window::SessionController*> controller,
+		PeerData *peer) {
+	controller->show(
+		Box(JournalBox, controller, JournalKind::Deleted, peer));
+}
+
+void ShowEditedJournal(
+		not_null<Window::SessionController*> controller,
+		PeerData *peer) {
+	controller->show(
+		Box(JournalBox, controller, JournalKind::Edited, peer));
+}
+
 void AddDeletedMessagesAction(
 		not_null<Window::SessionController*> controller,
 		not_null<PeerData*> peer,
 		const Ui::Menu::MenuCallback &addAction) {
-	if (!HasDeleted(peer)) {
-		return;
+	const auto archive = ArchiveFor(&peer->session());
+	const auto deleted = archive->countDeleted(peer->id);
+	if (deleted > 0) {
+		addAction(
+			tr::lng_telewhite_deleted_title(tr::now)
+				+ u" ("_q
+				+ QString::number(deleted)
+				+ u")"_q,
+			[=] { ShowDeletedJournal(controller, peer); },
+			&st::menuIconDelete);
 	}
-	addAction(tr::lng_telewhite_deleted_title(tr::now), [=] {
-		controller->show(Box(DeletedMessagesBox, controller->uiShow(), peer));
-	}, &st::menuIconDelete);
+	const auto edited = archive->countEdited(peer->id);
+	if (edited > 0) {
+		addAction(
+			u"Изменённые сообщения ("_q
+				+ QString::number(edited)
+				+ u")"_q,
+			[=] { ShowEditedJournal(controller, peer); },
+			&st::menuIconEdit);
+	}
 }
 
 } // namespace Telewhite

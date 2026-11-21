@@ -2787,7 +2787,15 @@ void Session::setPinnedFromEntryList(Dialogs::Key key, bool pinned) {
 
 	const auto list = chatsListFor(key.entry())->pinned();
 	if (pinned) {
-		list->addPinned(key);
+		// Telewhite: server pins go before the pins of this computer.
+		list->addPinnedAt(
+			key,
+			Telewhite::PinnedInsertPosition(key, list->order(), true));
+	} else if (Telewhite::IsPinnedTail(key)) {
+		// Pinned only on this computer, the server doesn't know it.
+		list->addPinnedAt(
+			key,
+			Telewhite::PinnedInsertPosition(key, list->order(), false));
 	} else {
 		list->setPinned(key, false);
 	}
@@ -2816,6 +2824,7 @@ void Session::applyPinnedChats(
 		});
 	}
 	chatsList(folder)->pinned()->applyList(this, list);
+	Telewhite::RestorePinnedTail(this, folder);
 	notifyPinnedDialogsOrderUpdated();
 }
 
@@ -2915,7 +2924,9 @@ bool Session::pinnedCanPin(not_null<Dialogs::Entry*> entry) const {
 		return pinnedChatsOrder(forum).size() < pinnedChatsLimit(forum);
 	} else {
 		const auto folder = entry->folder();
-		return pinnedChatsOrder(folder).size() < pinnedChatsLimit(folder);
+		// Telewhite: unlimited pins, see Telewhite::SavePinnedTail.
+		return int(pinnedChatsOrder(folder).size())
+			< Telewhite::LocalPinsLimit();
 	}
 }
 
@@ -2964,9 +2975,12 @@ rpl::producer<int> Session::maxPinnedChatsLimitValue(
 	// premium-ly added chats from the pinned list because of sync issues.
 	return _session->appConfig().value(
 	) | rpl::map([folder, limits = Data::PremiumLimits(_session)] {
-		return folder
-			? limits.dialogsFolderPinnedPremium()
-			: limits.dialogsPinnedPremium();
+		// Telewhite: pins over the server limit stay on this computer.
+		return std::max(
+			Telewhite::LocalPinsLimit(),
+			(folder
+				? limits.dialogsFolderPinnedPremium()
+				: limits.dialogsPinnedPremium()));
 	});
 }
 
