@@ -17,12 +17,24 @@ enum class Scene;
 
 namespace Telewhite {
 
-// "How it works" box, opened by the "?" button near the mod toggle.
+// What the "?" button near a function shows: a short description,
+// the "without mod" / "with mod" preview when the function has one and
+// the toggle when the function can be turned off.
+struct HowItWorksArgs {
+	rpl::producer<QString> title;
+
+	// The hint of the scene when empty.
+	QString about;
+
+	std::optional<Preview::Scene> scene;
+	rpl::producer<bool> value;
+	Fn<void(bool)> set;
+};
+
+// "How it works" box, opened by the "?" button near the function.
 void HowItWorksBox(
 	not_null<Ui::GenericBox*> box,
-	Preview::Scene scene,
-	rpl::producer<bool> value,
-	Fn<void(bool)> set);
+	HowItWorksArgs &&args);
 
 // Minimal accent row for the main settings, opens Telewhite Mods on click.
 [[nodiscard]] object_ptr<Ui::RpWidget> CreateModsBanner(

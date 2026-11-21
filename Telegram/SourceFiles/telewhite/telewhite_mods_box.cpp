@@ -217,42 +217,56 @@ QImage ModsBanner::prepareRippleMask() const {
 
 void HowItWorksBox(
 		not_null<Ui::GenericBox*> box,
-		Scene scene,
-		rpl::producer<bool> value,
-		Fn<void(bool)> set) {
+		HowItWorksArgs &&args) {
 	box->setStyle(st::layerBox);
 	box->setWidth(st::boxWideWidth);
-	box->setTitle(rpl::single(Preview::SceneTitle(scene)));
+	box->setTitle(std::move(args.title));
 
+	// Without a toggle the preview shows the function at work.
+	auto value = args.value
+		? std::move(args.value)
+		: rpl::producer<bool>(rpl::single(true));
 	const auto state = box->lifetime().make_state<rpl::variable<bool>>(
 		std::move(value));
+	const auto set = std::move(args.set);
 
-	box->addRow(
-		object_ptr<Ui::FlatLabel>(
-			box,
-			rpl::single(Preview::SceneHint(scene)),
-			st::boxLabel));
-	Ui::AddSkip(box->verticalLayout());
+	const auto about = !args.about.isEmpty()
+		? args.about
+		: args.scene
+		? Preview::SceneHint(*args.scene)
+		: QString();
+	if (!about.isEmpty()) {
+		box->addRow(
+			object_ptr<Ui::FlatLabel>(
+				box,
+				rpl::single(about),
+				st::boxLabel));
+		Ui::AddSkip(box->verticalLayout());
+	}
 
-	const auto padding = style::ConvertScale(kPanelsPadding);
-	box->addRow(
-		object_ptr<ScenePanels>(box, scene, state->value()),
-		style::margins(padding, 0, padding, 0));
-	Ui::AddSkip(box->verticalLayout());
+	if (const auto scene = args.scene) {
+		const auto padding = style::ConvertScale(kPanelsPadding);
+		box->addRow(
+			object_ptr<ScenePanels>(box, *scene, state->value()),
+			style::margins(padding, 0, padding, 0));
+		Ui::AddSkip(box->verticalLayout());
+	}
 
-	const auto toggle = box->addRow(
-		object_ptr<Ui::SettingsButton>(
-			box,
-			tr::lng_telewhite_preview_enabled(),
-			st::settingsButtonNoIcon),
-		style::margins());
-	toggle->toggleOn(state->value());
-	toggle->toggledChanges(
-	) | rpl::filter([=](bool toggled) {
-		return (toggled != state->current());
-	}) | rpl::on_next([=](bool toggled) {
-		set(toggled);
-	}, toggle->lifetime());
+	if (set) {
+		const auto toggle = box->addRow(
+			object_ptr<Ui::SettingsButton>(
+				box,
+				tr::lng_telewhite_preview_enabled(),
+				st::settingsButtonNoIcon),
+			style::margins());
+		toggle->toggleOn(state->value());
+		toggle->toggledChanges(
+		) | rpl::filter([=](bool toggled) {
+			return (toggled != state->current());
+		}) | rpl::on_next([=](bool toggled) {
+			set(toggled);
+		}, toggle->lifetime());
+	}
 
 	box->addButton(tr::lng_telewhite_preview_ok(), [=] { box->closeBox(); });
 }
