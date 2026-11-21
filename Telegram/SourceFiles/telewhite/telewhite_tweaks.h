@@ -114,6 +114,9 @@ bool PaintGlassRow(
 // "Glass profile": the profile sections are rounded cards over the group
 // background, the action buttons get a glass shine.
 [[nodiscard]] bool GlassProfileShown();
+
+// The page under the cards of the glass profile and its top bar.
+[[nodiscard]] QColor GlassProfilePage();
 [[nodiscard]] object_ptr<Ui::RpWidget> WrapProfileCard(
 	not_null<QWidget*> parent,
 	object_ptr<Ui::RpWidget> content);

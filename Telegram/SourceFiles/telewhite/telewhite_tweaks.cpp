@@ -577,11 +577,12 @@ QPainterPath GlassRowClip(QRect geometry) {
 
 namespace {
 
-// A section of the glass profile: a rounded card with a thin rim, the
-// content is inset so the rounded corners stay visible around it.
+// A section of the glass profile: a rounded card with a thin rim. The
+// layer above the content rounds its corners by the page color, so the
+// rows with their own background are rounded too, the hover included.
 constexpr auto kCardMargin = 12;
-constexpr auto kCardInset = 4;
-constexpr auto kCardRadius = 12;
+constexpr auto kCardRadius = 14;
+constexpr auto kCardShineHeight = 44.;
 
 class ProfileCard final : public Ui::RpWidget {
 public:
@@ -592,15 +593,26 @@ protected:
 	void paintEvent(QPaintEvent *e) override;
 
 private:
+	void paintOverlay(QPainter &p) const;
+
 	const object_ptr<Ui::RpWidget> _content;
+	const object_ptr<Ui::RpWidget> _overlay;
 
 };
 
 ProfileCard::ProfileCard(QWidget *parent, object_ptr<Ui::RpWidget> content)
 : RpWidget(parent)
-, _content(std::move(content)) {
+, _content(std::move(content))
+, _overlay(this) {
 	_content->setParent(this);
 	_content->show();
+	_overlay->setAttribute(Qt::WA_TransparentForMouseEvents);
+	_overlay->raise();
+	_overlay->show();
+	_overlay->paintRequest() | rpl::on_next([=] {
+		auto p = QPainter(_overlay.data());
+		paintOverlay(p);
+	}, _overlay->lifetime());
 	_content->heightValue(
 	) | rpl::skip(1) | rpl::on_next([=] {
 		resizeToWidth(width());
@@ -609,38 +621,56 @@ ProfileCard::ProfileCard(QWidget *parent, object_ptr<Ui::RpWidget> content)
 
 int ProfileCard::resizeGetHeight(int newWidth) {
 	const auto margin = style::ConvertScale(kCardMargin);
-	const auto inset = style::ConvertScale(kCardInset);
-	const auto inner = std::max(newWidth - 2 * (margin + inset), 1);
+	const auto inner = std::max(newWidth - 2 * margin, 1);
 	_content->resizeToWidth(inner);
-	_content->moveToLeft(margin + inset, inset, newWidth);
+	_content->moveToLeft(margin, 0, newWidth);
 	const auto height = _content->height();
-	return (height > 0) ? (height + 2 * inset) : 0;
+	_overlay->setGeometry(margin, 0, inner, height);
+	return height;
 }
 
 void ProfileCard::paintEvent(QPaintEvent *) {
-	if (_content->height() <= 0) {
+	const auto card = QRectF(_content->geometry());
+	if (card.isEmpty()) {
 		return;
 	}
 	auto p = QPainter(this);
 	auto hq = PainterHighQualityEnabler(p);
-	const auto margin = style::ConvertScale(kCardMargin);
 	const auto radius = float64(style::ConvertScale(kCardRadius));
-	const auto card = QRectF(rect().marginsRemoved({ margin, 0, margin, 0 }));
-	const auto bg = st::windowBg->c;
-	const auto dark = (bg.lightnessF() < 0.5);
 	p.setPen(Qt::NoPen);
-	p.setBrush(bg);
+	p.setBrush(st::windowBg);
 	p.drawRoundedRect(card, radius, radius);
-	auto shine = QLinearGradient(card.topLeft(), card.bottomLeft());
-	shine.setColorAt(0., QColor(255, 255, 255, dark ? 14 : 40));
-	shine.setColorAt(0.35, QColor(255, 255, 255, 0));
-	shine.setColorAt(1., QColor(255, 255, 255, 0));
-	p.setBrush(QBrush(shine));
-	p.drawRoundedRect(card, radius, radius);
+}
+
+void ProfileCard::paintOverlay(QPainter &p) const {
+	const auto size = _overlay->size();
+	if (size.isEmpty()) {
+		return;
+	}
+	auto hq = PainterHighQualityEnabler(p);
+	const auto card = QRectF(QPointF(), QSizeF(size));
+	const auto radius = float64(style::ConvertScale(kCardRadius));
+	auto rounded = QPainterPath();
+	rounded.addRoundedRect(card, radius, radius);
+	auto outside = QPainterPath();
+	outside.addRect(card);
+	p.fillPath(outside.subtracted(rounded), GlassProfilePage());
+
+	const auto dark = (st::windowBg->c.lightnessF() < 0.5);
+	if (dark) {
+		const auto stop = std::min(
+			style::ConvertScaleExact(kCardShineHeight) / card.height(),
+			1.);
+		auto shine = QLinearGradient(card.topLeft(), card.bottomLeft());
+		shine.setColorAt(0., QColor(255, 255, 255, 13));
+		shine.setColorAt(stop, QColor(255, 255, 255, 0));
+		shine.setColorAt(1., QColor(255, 255, 255, 0));
+		p.fillPath(rounded, QBrush(shine));
+	}
 	const auto line = style::ConvertScaleExact(1.);
 	const auto half = line / 2.;
 	p.setBrush(Qt::NoBrush);
-	p.setPen(QPen(dark ? QColor(255, 255, 255, 20) : QColor(0, 0, 0, 16), line));
+	p.setPen(QPen(dark ? QColor(255, 255, 255, 22) : QColor(0, 0, 0, 14), line));
 	p.drawRoundedRect(
 		card.marginsRemoved(QMarginsF(half, half, half, half)),
 		radius - half,
@@ -677,6 +707,20 @@ bool StartDictation(not_null<Ui::InputField*> field, bool voice) {
 
 bool GlassProfileShown() {
 	return Enabled(Mod::GlassUi) && Enabled(Mod::GlassProfile);
+}
+
+QColor GlassProfilePage() {
+	// iOS-like: in the dark themes the page is darker than the cards.
+	constexpr auto kDarken = 0.6;
+	const auto bg = st::windowBg->c;
+	const auto divider = st::boxDividerBg->c;
+	if (bg.lightnessF() >= 0.5 || divider.lightnessF() < bg.lightnessF()) {
+		return divider;
+	}
+	return QColor(
+		int(bg.red() * kDarken),
+		int(bg.green() * kDarken),
+		int(bg.blue() * kDarken));
 }
 
 object_ptr<Ui::RpWidget> WrapProfileCard(
