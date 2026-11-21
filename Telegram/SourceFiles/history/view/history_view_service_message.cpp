@@ -29,6 +29,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "menu/menu_ttl_validator.h"
 #include "data/data_forum_topic.h"
 #include "lang/lang_keys.h"
+#include "telewhite/telewhite_glass.h"
+#include "telewhite/telewhite_mods.h"
 #include "styles/style_chat.h"
 #include "styles/style_info.h"
 
@@ -321,6 +323,16 @@ void ServiceMessagePainter::PaintBubble(
 		const style::color &bg,
 		const Ui::CornersPixmaps &corners,
 		QRect rect) {
+	if (Telewhite::Enabled(Telewhite::Mod::GlassUi)) {
+		const auto capsule = (rect.height() < 2 * st::msgServiceFont->height);
+		const auto radius = capsule
+			? (rect.height() / 2)
+			: corners.p[0].isNull()
+			? Ui::HistoryServiceMsgRadius()
+			: (corners.p[0].width() / style::DevicePixelRatio());
+		Telewhite::PaintGlassBubble(p, rect, bg->c, radius);
+		return;
+	}
 	Ui::FillRoundRect(p, rect, bg, corners);
 }
 
@@ -332,6 +344,25 @@ void ServiceMessagePainter::PaintComplexBubble(
 		const Ui::Text::String &text,
 		const QRect &textRect) {
 	const auto lineWidths = CountLineWidths(text, textRect);
+
+	if (Telewhite::Enabled(Telewhite::Mod::GlassUi)
+		&& (lineWidths.size() == 1)) {
+		const auto glassWidth = lineWidths.front()
+			+ st::msgServicePadding.left()
+			+ st::msgServicePadding.right();
+		const auto glassHeight = st::msgServicePadding.top()
+			+ st::msgServiceFont->height
+			+ st::msgServicePadding.bottom();
+		PaintBubble(
+			p,
+			st,
+			QRect(
+				left + ((width - glassWidth) / 2),
+				st::msgServiceMargin.top(),
+				glassWidth,
+				glassHeight));
+		return;
+	}
 
 	int y = st::msgServiceMargin.top(), previousRichWidth = 0;
 	bool previousShrink = false, forceShrink = false;

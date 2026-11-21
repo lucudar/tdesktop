@@ -217,6 +217,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "telewhite/telewhite_mods.h"
 #include "telewhite/telewhite_send_confirm.h"
 #include "telewhite/telewhite_snowfall.h"
+#include "telewhite/telewhite_tweaks.h"
 #include "styles/style_boxes.h"
 #include "styles/style_chat.h"
 #include "styles/style_window.h"
@@ -5842,6 +5843,7 @@ Api::SendAction HistoryWidget::prepareSendAction(
 		Api::SendOptions options) {
 	auto result = Api::SendAction(_history, options);
 	result.replyTo = replyTo();
+	Telewhite::ApplyGhostSchedule(result);
 
 	if (const auto forum = _history->asForum()) {
 		if (forum->bot() && Data::IsBotUserCreatesTopics(_history->peer)) {
