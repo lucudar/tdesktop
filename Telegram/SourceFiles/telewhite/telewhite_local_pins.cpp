@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "apiwrap.h"
 #include "base/flat_set.h"
+#include "base/weak_ptr.h"
 #include "core/version.h"
 #include "data/data_channel.h"
 #include "data/data_folder.h"
@@ -50,6 +51,15 @@ struct State {
 	// The chats of the tails asked from the server in this session.
 	base::flat_set<PeerId> requested;
 	int requesting = 0;
+
+	// The server limits learned in this session from the refused pins: the
+	// server may count pins this computer doesn't show, like the hidden
+	// chats or the pins from another device not loaded yet.
+	base::flat_map<int, int> serverLimits;
+
+	// The refused chats to pin on the server again after the next sync.
+	base::flat_map<int, base::flat_set<PeerId>> repin;
+	base::flat_set<int> resyncing;
 };
 
 [[nodiscard]] QByteArray SerializePeer(not_null<PeerData*> peer) {
@@ -423,6 +433,63 @@ void RequestUnresolved(not_null<Data::Session*> owner) {
 	}
 }
 
+// The server part of the list: the official limit of this account, or
+// less if the server refused a pin in this session.
+[[nodiscard]] int ServerLimit(
+		not_null<Main::Session*> session,
+		Data::Folder *folder) {
+	const auto official = std::max(
+		session->data().pinnedChatsLimit(folder),
+		0);
+	const auto &learned = StateFor(session).serverLimits;
+	const auto i = learned.find(ListKey(folder));
+	return (i != end(learned)) ? std::min(official, i->second) : official;
+}
+
+[[nodiscard]] bool TooManyPins(const MTP::Error &error) {
+	const auto &type = error.type();
+	return type.startsWith(u"PINNED_"_q) && type.endsWith(u"TOO_MUCH"_q);
+}
+
+void SyncList(
+	not_null<Main::Session*> session,
+	Data::Folder *folder,
+	Dialogs::Key toggled,
+	bool pinned);
+
+// The server refused a pin: the list is synchronized again with one server
+// pin less, the refused chat is pinned there again or goes to the tail.
+void Refused(
+		not_null<Main::Session*> session,
+		int folderId,
+		PeerId peerId,
+		int triedLimit) {
+	auto &state = StateFor(session);
+	const auto lower = std::max(triedLimit - 1, 0);
+	const auto i = state.serverLimits.find(folderId);
+	if (i == end(state.serverLimits) || i->second > lower) {
+		state.serverLimits[folderId] = lower;
+	}
+	if (peerId) {
+		state.repin[folderId].emplace(peerId);
+	}
+	if (state.resyncing.contains(folderId)) {
+		return;
+	}
+	state.resyncing.emplace(folderId);
+	crl::on_main(session.get(), [=] {
+		StateFor(session).resyncing.remove(folderId);
+		const auto folder = folderId
+			? session->data().folderLoaded(folderId)
+			: nullptr;
+		if (folderId && !folder) {
+			return;
+		}
+		SyncList(session, folder, Dialogs::Key(), false);
+		session->data().notifyPinnedDialogsOrderUpdated();
+	});
+}
+
 [[nodiscard]] MTPInputDialogPeer InputDialogPeer(Dialogs::Key key) {
 	if (const auto history = key.history()) {
 		if (const auto channel = history->peer->asChannel()
@@ -512,6 +579,16 @@ void SyncPinned(
 		Data::Folder *folder,
 		Dialogs::Key toggled,
 		bool pinned) {
+	SyncList(session, folder, toggled, pinned);
+}
+
+namespace {
+
+void SyncList(
+		not_null<Main::Session*> session,
+		Data::Folder *folder,
+		Dialogs::Key toggled,
+		bool pinned) {
 	using ToggleFlag = MTPmessages_ToggleDialogPin::Flag;
 	using ReorderFlag = MTPmessages_ReorderPinnedDialogs::Flag;
 
@@ -526,8 +603,22 @@ void SyncPinned(
 
 	const auto order = owner->pinnedChatsOrder(folder);
 	const auto size = int(order.size());
-	const auto serverLimit = std::max(owner->pinnedChatsLimit(folder), 0);
+	const auto serverLimit = ServerLimit(session, folder);
 	const auto server = std::min(size, serverLimit);
+	const auto folderId = ListKey(folder);
+	auto repin = base::flat_set<PeerId>();
+	{
+		auto &all = StateFor(session).repin;
+		if (const auto i = all.find(folderId); i != end(all)) {
+			repin = std::move(i->second);
+			all.erase(i);
+		}
+	}
+	LOG(("Telewhite pins: list %1, %2 pinned, %3 on the server (limit %4)"
+		).arg(folderId
+		).arg(size
+		).arg(server
+		).arg(serverLimit));
 	const auto stored = TailFor(session, ListKey(folder));
 	const auto wasTail = stored ? *stored : std::vector<PeerId>();
 	const auto inWasTail = [&](Dialogs::Key key) {
@@ -543,12 +634,25 @@ void SyncPinned(
 
 	auto &api = session->api();
 	auto last = mtpRequestId(0);
+	const auto weak = base::make_weak(session);
 	const auto toggle = [&](Dialogs::Key key, bool pin) {
 		const auto flags = pin ? ToggleFlag::f_pinned : ToggleFlag(0);
+		const auto history = key.history();
+		const auto peerId = history ? history->peer->id : PeerId();
 		last = api.request(MTPmessages_ToggleDialogPin(
 			MTP_flags(flags),
 			InputDialogPeer(key)
-		)).afterRequest(last).send();
+		)).fail([=](const MTP::Error &error) {
+			LOG(("Telewhite pins: %1 of %2 failed: %3"
+				).arg(pin ? u"pin"_q : u"unpin"_q
+				).arg(peerId.value
+				).arg(error.type()));
+			if (const auto strong = weak.get()) {
+				if (pin && TooManyPins(error)) {
+					Refused(strong, folderId, peerId, serverLimit);
+				}
+			}
+		}).afterRequest(last).send();
 	};
 
 	// First free the server slots.
@@ -564,7 +668,11 @@ void SyncPinned(
 	// Then pin there the chats that came into the server part.
 	for (auto i = 0; i < server; ++i) {
 		const auto key = order[i];
-		if (key.history() && (inWasTail(key) || isNewPin(key))) {
+		const auto history = key.history();
+		if (history
+			&& (inWasTail(key)
+				|| isNewPin(key)
+				|| repin.contains(history->peer->id))) {
 			toggle(key, true);
 		}
 	}
@@ -578,8 +686,19 @@ void SyncPinned(
 		MTP_flags(ReorderFlag::f_force),
 		MTP_int(folder ? folder->id() : 0),
 		MTP_vector(peers)
-	)).afterRequest(last).send();
+	)).fail([=](const MTP::Error &error) {
+		LOG(("Telewhite pins: reorder of the list %1 failed: %2"
+			).arg(folderId
+			).arg(error.type()));
+		if (const auto strong = weak.get()) {
+			if (TooManyPins(error)) {
+				Refused(strong, folderId, PeerId(), serverLimit);
+			}
+		}
+	}).afterRequest(last).send();
 }
+
+} // namespace
 
 int LocalPinIndex(not_null<const Dialogs::Entry*>, FilterId) {
 	return 0;
