@@ -76,6 +76,17 @@ void PinnedList::setPinned(Key key, bool pinned) {
 	}
 }
 
+void PinnedList::addPinnedAt(Key key, int position) {
+	if (ranges::contains(_data, key) || int(_data.size()) >= _limit) {
+		return;
+	}
+	position = std::clamp(position, 0, int(_data.size()));
+	_data.insert(begin(_data) + position, key);
+	for (auto i = position; i < int(size(_data)); ++i) {
+		_data[i].entry()->cachePinnedIndex(_filterId, i + 1);
+	}
+}
+
 void PinnedList::applyLimit(int limit) {
 	Expects(limit >= 0);
 

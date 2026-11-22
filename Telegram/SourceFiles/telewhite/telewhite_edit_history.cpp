@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_item_components.h"
 #include "lang/lang_keys.h"
 #include "telewhite/telewhite_deleted.h"
+#include "telewhite/telewhite_long_press.h"
 #include "telewhite/telewhite_mods.h"
 #include "ui/layers/generic_box.h"
 #include "ui/vertical_list.h"
@@ -21,6 +22,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_session_controller.h"
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
+#include "styles/style_widgets.h"
 
 namespace Telewhite {
 namespace {
@@ -33,40 +35,56 @@ namespace {
 	};
 }
 
-void EditHistoryBox(
+} // namespace
+
+void EditVersionsBox(
 		not_null<Ui::GenericBox*> box,
 		std::vector<EditVersion> versions) {
 	box->setTitle(tr::lng_telewhite_edit_history());
 	box->setWidth(st::boxWideWidth);
 
 	const auto container = box->verticalLayout();
+	const auto show = box->uiShow();
 	const auto count = int(versions.size());
 	for (auto i = count; i != 0;) {
-		auto &version = versions[--i];
+		const auto &version = versions[--i];
 		const auto date = FormatExactDateTime(version.date);
 		const auto title = (i + 1 == count)
 			? tr::lng_telewhite_edit_history_current(tr::now, lt_date, date)
 			: date;
 		Ui::AddSubsectionTitle(container, rpl::single(title));
-		if (version.text.text.isEmpty()) {
-			version.text = TextWithEntities{
-				tr::lng_telewhite_edit_history_empty(tr::now),
-			};
-		}
+		const auto empty = version.text.text.isEmpty();
 		const auto label = container->add(
 			object_ptr<Ui::FlatLabel>(
 				container,
-				rpl::single(std::move(version.text)),
+				rpl::single(empty
+					? TextWithEntities{
+						tr::lng_telewhite_edit_history_empty(tr::now),
+					}
+					: version.text),
 				st::boxLabel),
 			st::boxRowPadding);
 		label->setSelectable(true);
+		if (!empty) {
+			const auto text = version.text;
+			OnLongPress(label, [=] {
+				CopyWithFormatting(show, text);
+			});
+		}
 		Ui::AddSkip(container);
 	}
+	const auto hint = container->add(
+		object_ptr<Ui::FlatLabel>(
+			container,
+			rpl::single(
+				u"Зажмите версию, чтобы скопировать её с форматированием."_q),
+			st::boxLabel),
+		st::boxRowPadding);
+	hint->setTextColorOverride(std::make_optional(st::windowSubTextFg->c));
+	Ui::AddSkip(container);
 
 	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 }
-
-} // namespace
 
 std::optional<EditVersion> EditSnapshot(not_null<HistoryItem*> item) {
 	if (!item->isRegular() || !KeepEditsIn(item->history())) {
@@ -98,7 +116,7 @@ void AddEditHistoryAction(
 	}
 	versions.push_back(CurrentVersion(item));
 	menu->addAction(tr::lng_telewhite_edit_history(tr::now), [=] {
-		controller->show(Box(EditHistoryBox, versions));
+		controller->show(Box(EditVersionsBox, versions));
 	}, &st::menuIconEdit);
 }
 
