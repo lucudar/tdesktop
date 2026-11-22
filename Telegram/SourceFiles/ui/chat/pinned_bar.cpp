@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/chat/pinned_bar.h"
 
+#include "telewhite/telewhite_glass.h"
 #include "ui/chat/message_bar.h"
 #include "ui/effects/spoiler_mess.h"
 #include "ui/widgets/shadow.h"
@@ -37,9 +38,22 @@ PinnedBar::PinnedBar(
 		return (shown == _shadow->isHidden());
 	}));
 
+	const auto glass = lifetime().make_state<Telewhite::GlassBackdropCache>();
 	_wrap.entity()->paintRequest(
 	) | rpl::on_next([=](QRect clip) {
-		QPainter(_wrap.entity()).fillRect(clip, st::historyPinnedBg);
+		const auto entity = _wrap.entity();
+		auto p = QPainter(entity);
+		const auto painted = Telewhite::GlassUiEnabled()
+			&& Telewhite::PaintGlassBar(
+				p,
+				entity,
+				entity->rect(),
+				*glass,
+				st::historyPinnedBg->c,
+				false);
+		if (!painted) {
+			p.fillRect(clip, st::historyPinnedBg);
+		}
 	}, lifetime());
 	_wrap.setAttribute(Qt::WA_OpaquePaintEvent);
 
