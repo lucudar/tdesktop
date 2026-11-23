@@ -25,6 +25,7 @@ import telewhite_patch_batch38
 import telewhite_patch_batch39
 import telewhite_patch_batch40
 import telewhite_patch_batch41
+import telewhite_patch_batch42
 import telewhite_build_cache
 
 executePath = os.getcwd()
