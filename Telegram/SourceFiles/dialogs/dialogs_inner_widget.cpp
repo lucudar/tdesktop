@@ -98,6 +98,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_chat_filters.h"
 #include "base/qt/qt_common_adapters.h"
 #include "telewhite/telewhite_local_pins.h"
+#include "telewhite/telewhite_tweaks.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_boxes.h"
 #include "styles/style_chat.h" // popupMenuExpandedSeparator
@@ -439,7 +440,7 @@ InnerWidget::InnerWidget(
 	session().data().chatsFilters().tagsEnabledValue(
 	) | rpl::on_next([=](bool tags) {
 		_handleChatListEntryTagRefreshesLifetime.destroy();
-		if (!tags) {
+		if (!Telewhite::FolderTagsShown(tags)) {
 			return;
 		}
 		using Event = Data::Session::ChatListEntryRefresh;
@@ -484,7 +485,7 @@ InnerWidget::InnerWidget(
 					if (filter.id() != filterId) {
 						continue;
 					}
-					const auto c = filter.colorIndex();
+					const auto c = Telewhite::FolderTagColor(filter);
 					const auto list = filters.chatsList(filterId);
 					for (const auto &row : list->indexed()->all()) {
 						row->entry()->setColorIndexForFilterId(filterId, c);
@@ -5887,8 +5888,8 @@ QImage *InnerWidget::cacheChatsFilterTag(
 	if (filter.id()) {
 		roundedText = filter.title().text;
 		roundedText.text = roundedText.text.toUpper();
-		if (filter.colorIndex()) {
-			colorIndex = *(filter.colorIndex());
+		if (const auto color = Telewhite::FolderTagColor(filter)) {
+			colorIndex = *color;
 		}
 	} else if (more > 0) {
 		roundedText.text = QChar('+') + QString::number(more);
