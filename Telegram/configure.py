@@ -13,6 +13,20 @@ sys.path.append(scriptPath + '/../cmake')
 import run_cmake
 sys.path.append(scriptPath + '/build')
 import qt_version
+import telewhite_patch
+import telewhite_patch_more
+import telewhite_patch_batch32
+import telewhite_patch_batch33
+import telewhite_patch_batch34
+import telewhite_patch_batch35
+import telewhite_patch_batch36
+import telewhite_patch_batch37
+import telewhite_patch_batch38
+import telewhite_patch_batch39
+import telewhite_patch_batch40
+import telewhite_patch_batch41
+import telewhite_patch_batch42
+import telewhite_build_cache
 
 executePath = os.getcwd()
 def finish(code):
@@ -68,5 +82,11 @@ if officialTarget != '':
                 arguments.append('-DTDESKTOP_API_HASH=' + apiHashMatch.group(1))
     if arch != '':
         arguments.append(arch)
+
+# Telewhite: patches of the large upstream sources, see build/telewhite_patch.py.
+telewhite_patch.apply_all(os.path.dirname(scriptPath))
+
+# Telewhite: a cached out folder from another compiler is dropped.
+telewhite_build_cache.check_compiler(os.path.dirname(scriptPath))
 
 finish(run_cmake.run(scriptName, arguments))

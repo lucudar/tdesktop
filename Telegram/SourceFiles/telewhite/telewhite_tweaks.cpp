@@ -6,17 +6,38 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "telewhite/telewhite_tweaks.h"
 
+#include "api/api_blocked_peers.h"
+#include "api/api_common.h"
+#include "apiwrap.h"
+#include "base/weak_ptr.h"
+#include "boxes/abstract_box.h"
+#include "base/unixtime.h"
 #include "data/data_changes.h"
+#include "data/data_chat_filters.h"
+#include "data/data_histories.h"
 #include "data/data_peer.h"
 #include "data/data_peer_values.h"
+#include "data/data_session.h"
 #include "data/data_user.h"
+#include "history/history.h"
+#include "history/history_item.h"
 #include "main/main_session.h"
 #include "telewhite/telewhite_mods.h"
+#include "ui/boxes/confirm_box.h"
 #include "ui/effects/outline_segments.h"
 #include "ui/painter.h"
 #include "ui/rp_widget.h"
+#include "ui/widgets/fields/input_field.h"
+#include "ui/style/style_core_scale.h"
 #include "styles/style_chat.h"
 #include "styles/style_dialogs.h"
+
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif // NOMINMAX
+#include <windows.h>
+#endif // Q_OS_WIN
 
 namespace Telewhite {
 namespace {
@@ -24,6 +45,14 @@ namespace {
 // Message is converted only if most of its letters are capital.
 constexpr auto kMinCapsLetters = 4;
 constexpr auto kMinCapsPart = 0.7;
+
+// The text is sent right after its send action is prepared.
+constexpr auto kMentionFreshFor = crl::time(1000);
+
+struct PendingMention {
+	TextWithEntities text;
+	crl::time when = 0;
+};
 
 [[nodiscard]] bool KeepsCase(EntityType type) {
 	switch (type) {
@@ -47,9 +76,96 @@ constexpr auto kMinCapsPart = 0.7;
 	return QString::fromUtf8(text);
 }
 
+[[nodiscard]] PendingMention &Pending() {
+	static auto result = PendingMention();
+	return result;
+}
+
+// @username of the author or a link to him by the name.
+[[nodiscard]] TextWithEntities MentionOf(not_null<PeerData*> from) {
+	const auto username = from->username();
+	if (!username.isEmpty()) {
+		const auto text = u"@"_q + username;
+		auto result = TextWithEntities{ text };
+		result.entities.push_back(
+			EntityInText(EntityType::Mention, 0, int(text.size())));
+		return result;
+	}
+	const auto user = from->asUser();
+	if (!user || user->isInaccessible()) {
+		return TextWithEntities();
+	}
+	const auto name = user->firstName.isEmpty()
+		? user->name()
+		: user->firstName;
+	if (name.isEmpty()) {
+		return TextWithEntities();
+	}
+	auto fields = TextUtilities::MentionNameFields();
+	fields.selfId = user->session().userId().bare;
+	fields.userId = peerToUser(user->id).bare;
+	fields.accessHash = user->accessHash();
+	auto result = TextWithEntities{ name };
+	result.entities.push_back(EntityInText(
+		EntityType::MentionName,
+		0,
+		int(name.size()),
+		TextUtilities::MentionNameDataFromFields(fields)));
+	return result;
+}
+
+// The server doesn't accept a reply to a message deleted there: the reply
+// goes without it (staying in its topic) and the text sent right after
+// starts with a mention of the author of the deleted message.
+void ApplyDeletedReply(Api::SendAction &action) {
+	auto &replyTo = action.replyTo;
+	if (!replyTo.messageId) {
+		return;
+	}
+	const auto history = action.history;
+	const auto item = history->owner().message(replyTo.messageId);
+	if (!item || !IsMarkedDeleted(item)) {
+		return;
+	}
+	replyTo.messageId = replyTo.topicRootId
+		? FullMsgId(history->peer->id, replyTo.topicRootId)
+		: FullMsgId();
+	replyTo.quote = TextWithEntities();
+	replyTo.quoteOffset = 0;
+	replyTo.todoItemId = 0;
+	replyTo.pollOption = QByteArray();
+	replyTo.richQuote = nullptr;
+	const auto from = item->from();
+	if (!Enabled(Mod::MentionDeletedReply) || from->isSelf()) {
+		return;
+	}
+	auto mention = MentionOf(from);
+	if (!mention.empty()) {
+		auto &pending = Pending();
+		pending.text = std::move(mention);
+		pending.when = crl::now();
+	}
+}
+
+void ApplyPendingMention(TextWithEntities &text) {
+	auto &pending = Pending();
+	if (pending.text.empty()) {
+		return;
+	}
+	auto mention = base::take(pending.text);
+	const auto when = base::take(pending.when);
+	if (crl::now() - when > kMentionFreshFor) {
+		return;
+	}
+	mention.append(u" "_q);
+	mention.append(text);
+	text = std::move(mention);
+}
+
 } // namespace
 
 void ApplyAntiCaps(TextWithEntities &text) {
+	ApplyPendingMention(text);
 	if (!Enabled(Mod::AntiCaps)) {
 		return;
 	}
@@ -196,6 +312,447 @@ void SetupStoryRings(rpl::lifetime &lifetime) {
 		OptionValue(Option::StoryRingColor) | rpl::to_empty,
 		style::PaletteChanged()
 	) | rpl::on_next(apply, lifetime);
+}
+
+void ApplyGhostSchedule(Api::SendAction &action) {
+	ApplyDeletedReply(action);
+
+	// Telegram doesn't accept the schedule date too close to now.
+	constexpr auto kDelay = TimeId(12);
+	if (!Enabled(Mod::GhostOnline) || !Enabled(Mod::GhostScheduled)) {
+		return;
+	}
+	const auto &options = action.options;
+	if (options.scheduled
+		|| options.shortcutId
+		|| options.price
+		|| options.starsApproved
+		|| options.suggest.exists
+		|| action.replaceMediaOf) {
+		return;
+	}
+	const auto peer = action.history->peer;
+	if (peer->isSelf()
+		|| peer->isBot()
+		|| peer->isMonoforum()
+		|| peer->isRepliesChat()
+		|| peer->isVerifyCodes()
+		|| peer->starsPerMessageChecked() > 0) {
+		return;
+	}
+	action.options.scheduled = base::unixtime::now() + kDelay;
+}
+
+void ApplyStyleTweaks() {
+	static auto applied = false;
+	if (applied || !Enabled(Mod::CompactChats)) {
+		return;
+	}
+	applied = true;
+
+	// What the compact row has less than the usual one, at 100% scale.
+	struct Shift {
+		int height = 0;
+		int photoTop = 0;
+		int nameTop = 0;
+		int textTop = 0;
+		int tagTop = 0;
+	};
+	const auto compact = [](const style::DialogRow &base, Shift shift) {
+		// The styles are filled once on the start, changing them right
+		// after that is the same as other values in the .style files.
+		auto &row = const_cast<style::DialogRow&>(base);
+		const auto scaled = [](int value) {
+			return style::ConvertScale(value);
+		};
+		row.photoSize -= scaled(8);
+		row.nameLeft -= scaled(10);
+		row.textLeft -= scaled(10);
+		row.height -= scaled(shift.height);
+		row.padding.setTop(row.padding.top() - scaled(shift.photoTop));
+		row.nameTop -= scaled(shift.nameTop);
+		row.textTop -= scaled(shift.textTop);
+		row.tagTop -= scaled(shift.tagTop);
+	};
+	compact(st::defaultDialogRow, {
+		.height = 12,
+		.photoTop = 2,
+		.nameTop = 4,
+		.textTop = 8,
+	});
+	compact(st::taggedDialogRow, {
+		.height = 10,
+		.photoTop = 2,
+		.nameTop = 4,
+		.textTop = 6,
+		.tagTop = 8,
+	});
+
+	// Forums keep their height for the topics line, the userpics match.
+	compact(st::forumDialogRow, {});
+	compact(st::taggedForumDialogRow, {});
+
+	// The search results and the list paddings count with this one.
+	const_cast<int&>(st::dialogsRowHeight) = st::defaultDialogRow.height;
+}
+
+bool FolderTagsShown(bool serverEnabled) {
+	// Read once: the colors are given to the chats when they load.
+	static const auto local = Enabled(Mod::FolderTags);
+	return serverEnabled || local;
+}
+
+std::optional<uint8> FolderTagColor(const Data::ChatFilter &filter) {
+	constexpr auto kColorsCount = 7;
+	if (const auto color = filter.colorIndex()) {
+		return color;
+	} else if (!filter.id() || !FolderTagsShown(false)) {
+		return std::nullopt;
+	}
+	return uint8(std::abs(int(filter.id())) % kColorsCount);
+}
+
+namespace {
+
+// The "joined Telegram" service messages, marked when they are made.
+using JoinedKey = std::pair<uint64, FullMsgId>;
+
+[[nodiscard]] base::flat_set<JoinedKey> &JoinedMessages() {
+	static auto result = base::flat_set<JoinedKey>();
+	return result;
+}
+
+[[nodiscard]] JoinedKey JoinedKeyOf(not_null<const HistoryItem*> item) {
+	return { item->history()->session().uniqueId(), item->fullId() };
+}
+
+// The glass chat list: the hovered and the opened chats are floating
+// rounded capsules, the rest of the row shows the list background.
+constexpr auto kGlassRowSkipX = 6;
+constexpr auto kGlassRowSkipY = 2;
+constexpr auto kGlassRowRadius = 12;
+
+[[nodiscard]] bool GlassRowsShown() {
+	return Enabled(Mod::GlassUi) && Enabled(Mod::GlassChats);
+}
+
+[[nodiscard]] QRect GlassRowPill(QRect geometry) {
+	const auto skipX = style::ConvertScale(kGlassRowSkipX);
+	const auto skipY = style::ConvertScale(kGlassRowSkipY);
+	return geometry.marginsRemoved({ skipX, skipY, skipX, skipY });
+}
+
+// The server tells who is blocked only in the list of the blocked,
+// it is read once on the start, page by page.
+void LoadBlocked(not_null<Main::Session*> session, int offset) {
+	const auto weak = base::make_weak(session);
+	session->api().blockedPeers().request(offset, [=](
+			const Api::BlockedPeers::Slice &slice) {
+		const auto strong = weak.get();
+		if (!strong) {
+			return;
+		}
+		for (const auto &entry : slice.list) {
+			if (const auto peer = strong->data().peerLoaded(entry.id)) {
+				peer->setIsBlocked(true);
+			}
+		}
+		const auto next = offset + int(slice.list.size());
+		if (!slice.list.empty() && next < slice.total) {
+			LoadBlocked(strong, next);
+		}
+	});
+}
+
+} // namespace
+
+bool ConfirmOutgoingCall(
+		not_null<UserData*> user,
+		bool video,
+		Fn<void()> start) {
+	static auto confirmed = false;
+	if (base::take(confirmed) || !Enabled(Mod::ConfirmCalls)) {
+		return false;
+	}
+	const auto name = user->name();
+	Ui::show(Ui::MakeConfirmBox({
+		.text = (video
+			? (u"Начать видеозвонок с "_q + name + u"?"_q)
+			: (u"Позвонить "_q + name + u"?"_q)),
+		.confirmed = [=](Fn<void()> &&close) {
+			close();
+			confirmed = true;
+			start();
+		},
+		.confirmText = (video ? u"Видеозвонок"_q : u"Позвонить"_q),
+	}));
+	return true;
+}
+
+bool HiddenFromBlocked(not_null<const HistoryItem*> item) {
+	if (!Enabled(Mod::HideBlocked) || item->out()) {
+		return false;
+	}
+	const auto peer = item->history()->peer;
+	if (peer->isUser()) {
+		return false;
+	}
+	const auto from = item->from();
+	return (from != peer) && from->isBlocked();
+}
+
+void MarkContactSignUp(not_null<const HistoryItem*> item) {
+	JoinedMessages().emplace(JoinedKeyOf(item));
+}
+
+void SetupSessionMods(not_null<Main::Session*> session) {
+	if (Enabled(Mod::HideBlocked)) {
+		LoadBlocked(session, 0);
+	}
+	session->data().newItemAdded(
+	) | rpl::filter([](not_null<HistoryItem*> item) {
+		return Enabled(Mod::DeleteJoined)
+			&& JoinedMessages().contains(JoinedKeyOf(item));
+	}) | rpl::on_next([=](not_null<HistoryItem*> item) {
+		JoinedMessages().remove(JoinedKeyOf(item));
+		const auto id = item->fullId();
+		crl::on_main(session.get(), [=] {
+			if (session->data().message(id)) {
+				session->data().histories().deleteMessages(
+					MessageIdsList{ id },
+					false);
+				session->data().sendHistoryChangeNotifications();
+			}
+		});
+	}, session->lifetime());
+}
+
+bool PaintGlassRow(
+		QPainter &p,
+		QRect geometry,
+		const QBrush &bg,
+		const QBrush &listBg,
+		bool highlighted,
+		bool active) {
+	if (!GlassRowsShown()) {
+		return false;
+	}
+	p.fillRect(geometry, listBg);
+	if (!highlighted) {
+		return true;
+	}
+	const auto pill = QRectF(GlassRowPill(geometry));
+	const auto radius = float64(style::ConvertScale(kGlassRowRadius));
+	auto hq = PainterHighQualityEnabler(p);
+	p.setPen(Qt::NoPen);
+	p.setBrush(bg);
+	p.drawRoundedRect(pill, radius, radius);
+	auto shine = QLinearGradient(pill.topLeft(), pill.bottomLeft());
+	shine.setColorAt(0., QColor(255, 255, 255, active ? 46 : 22));
+	shine.setColorAt(0.55, QColor(255, 255, 255, 0));
+	shine.setColorAt(1., QColor(255, 255, 255, 0));
+	p.setBrush(QBrush(shine));
+	p.drawRoundedRect(pill, radius, radius);
+	if (active) {
+		const auto line = style::ConvertScaleExact(1.);
+		const auto half = line / 2.;
+		p.setBrush(Qt::NoBrush);
+		p.setPen(QPen(QColor(255, 255, 255, 52), line));
+		p.drawRoundedRect(
+			pill.marginsRemoved(QMarginsF(half, half, half, half)),
+			radius - half,
+			radius - half);
+	}
+	return true;
+}
+
+QPainterPath GlassRowClip(QRect geometry) {
+	auto result = QPainterPath();
+	if (GlassRowsShown()) {
+		const auto radius = float64(style::ConvertScale(kGlassRowRadius));
+		result.addRoundedRect(QRectF(GlassRowPill(geometry)), radius, radius);
+	}
+	return result;
+}
+
+namespace {
+
+// A section of the glass profile: a rounded card with a thin rim. The
+// layer above the content rounds its corners by the page color, so the
+// rows with their own background are rounded too, the hover included.
+constexpr auto kCardMargin = 12;
+constexpr auto kCardRadius = 14;
+constexpr auto kCardShineHeight = 44.;
+
+class ProfileCard final : public Ui::RpWidget {
+public:
+	ProfileCard(QWidget *parent, object_ptr<Ui::RpWidget> content);
+
+protected:
+	int resizeGetHeight(int newWidth) override;
+	void paintEvent(QPaintEvent *e) override;
+
+private:
+	void paintOverlay(QPainter &p) const;
+
+	const object_ptr<Ui::RpWidget> _content;
+	const object_ptr<Ui::RpWidget> _overlay;
+
+};
+
+ProfileCard::ProfileCard(QWidget *parent, object_ptr<Ui::RpWidget> content)
+: RpWidget(parent)
+, _content(std::move(content))
+, _overlay(this) {
+	_content->setParent(this);
+	_content->show();
+	_overlay->setAttribute(Qt::WA_TransparentForMouseEvents);
+	_overlay->raise();
+	_overlay->show();
+	_overlay->paintRequest() | rpl::on_next([=] {
+		auto p = QPainter(_overlay.data());
+		paintOverlay(p);
+	}, _overlay->lifetime());
+	_content->heightValue(
+	) | rpl::skip(1) | rpl::on_next([=] {
+		resizeToWidth(width());
+	}, lifetime());
+}
+
+int ProfileCard::resizeGetHeight(int newWidth) {
+	const auto margin = style::ConvertScale(kCardMargin);
+	const auto inner = std::max(newWidth - 2 * margin, 1);
+	_content->resizeToWidth(inner);
+	_content->moveToLeft(margin, 0, newWidth);
+	const auto height = _content->height();
+	_overlay->setGeometry(margin, 0, inner, height);
+	return height;
+}
+
+void ProfileCard::paintEvent(QPaintEvent *) {
+	const auto card = QRectF(_content->geometry());
+	if (card.isEmpty()) {
+		return;
+	}
+	auto p = QPainter(this);
+	auto hq = PainterHighQualityEnabler(p);
+	const auto radius = float64(style::ConvertScale(kCardRadius));
+	p.setPen(Qt::NoPen);
+	p.setBrush(st::windowBg);
+	p.drawRoundedRect(card, radius, radius);
+}
+
+void ProfileCard::paintOverlay(QPainter &p) const {
+	const auto size = _overlay->size();
+	if (size.isEmpty()) {
+		return;
+	}
+	auto hq = PainterHighQualityEnabler(p);
+	const auto card = QRectF(QPointF(), QSizeF(size));
+	const auto radius = float64(style::ConvertScale(kCardRadius));
+	auto rounded = QPainterPath();
+	rounded.addRoundedRect(card, radius, radius);
+	auto outside = QPainterPath();
+	outside.addRect(card);
+	p.fillPath(outside.subtracted(rounded), GlassProfilePage());
+
+	const auto dark = (st::windowBg->c.lightnessF() < 0.5);
+	if (dark) {
+		const auto stop = std::min(
+			style::ConvertScaleExact(kCardShineHeight) / card.height(),
+			1.);
+		auto shine = QLinearGradient(card.topLeft(), card.bottomLeft());
+		shine.setColorAt(0., QColor(255, 255, 255, 13));
+		shine.setColorAt(stop, QColor(255, 255, 255, 0));
+		shine.setColorAt(1., QColor(255, 255, 255, 0));
+		p.fillPath(rounded, QBrush(shine));
+	}
+	const auto line = style::ConvertScaleExact(1.);
+	const auto half = line / 2.;
+	p.setBrush(Qt::NoBrush);
+	p.setPen(QPen(dark ? QColor(255, 255, 255, 22) : QColor(0, 0, 0, 14), line));
+	p.drawRoundedRect(
+		card.marginsRemoved(QMarginsF(half, half, half, half)),
+		radius - half,
+		radius - half);
+}
+
+} // namespace
+
+bool StartDictation(not_null<Ui::InputField*> field, bool voice) {
+	if (!voice || !Enabled(Mod::Dictation)) {
+		return false;
+	}
+#ifdef Q_OS_WIN
+	field->setFocusFast();
+	// Windows voice typing writes to the focused field, Win+H opens it.
+	crl::on_main(field.get(), [] {
+		auto inputs = std::array<INPUT, 4>();
+		for (auto &input : inputs) {
+			input.type = INPUT_KEYBOARD;
+		}
+		inputs[0].ki.wVk = VK_LWIN;
+		inputs[1].ki.wVk = WORD('H');
+		inputs[2].ki.wVk = WORD('H');
+		inputs[2].ki.dwFlags = KEYEVENTF_KEYUP;
+		inputs[3].ki.wVk = VK_LWIN;
+		inputs[3].ki.dwFlags = KEYEVENTF_KEYUP;
+		SendInput(UINT(inputs.size()), inputs.data(), int(sizeof(INPUT)));
+	});
+	return true;
+#else // Q_OS_WIN
+	return false;
+#endif // Q_OS_WIN
+}
+
+bool GlassProfileShown() {
+	return Enabled(Mod::GlassUi) && Enabled(Mod::GlassProfile);
+}
+
+QColor GlassProfilePage() {
+	// iOS-like: in the dark themes the page is darker than the cards.
+	constexpr auto kDarken = 0.6;
+	const auto bg = st::windowBg->c;
+	const auto divider = st::boxDividerBg->c;
+	if (bg.lightnessF() >= 0.5 || divider.lightnessF() < bg.lightnessF()) {
+		return divider;
+	}
+	return QColor(
+		int(bg.red() * kDarken),
+		int(bg.green() * kDarken),
+		int(bg.blue() * kDarken));
+}
+
+object_ptr<Ui::RpWidget> WrapProfileCard(
+		not_null<QWidget*> parent,
+		object_ptr<Ui::RpWidget> content) {
+	return object_ptr<ProfileCard>(parent.get(), std::move(content));
+}
+
+void PaintGlassButtonShine(QPainter &p, QRect rect, int radius) {
+	if (!GlassProfileShown() || rect.isEmpty()) {
+		return;
+	}
+	p.save();
+	auto hq = PainterHighQualityEnabler(p);
+	const auto shape = QRectF(rect);
+	const auto rounding = float64(radius);
+	auto shine = QLinearGradient(shape.topLeft(), shape.bottomLeft());
+	shine.setColorAt(0., QColor(255, 255, 255, 56));
+	shine.setColorAt(0.5, QColor(255, 255, 255, 0));
+	shine.setColorAt(1., QColor(255, 255, 255, 0));
+	p.setPen(Qt::NoPen);
+	p.setBrush(QBrush(shine));
+	p.drawRoundedRect(shape, rounding, rounding);
+	const auto line = style::ConvertScaleExact(1.);
+	const auto half = line / 2.;
+	p.setBrush(Qt::NoBrush);
+	p.setPen(QPen(QColor(255, 255, 255, 60), line));
+	p.drawRoundedRect(
+		shape.marginsRemoved(QMarginsF(half, half, half, half)),
+		rounding - half,
+		rounding - half);
+	p.restore();
 }
 
 } // namespace Telewhite
